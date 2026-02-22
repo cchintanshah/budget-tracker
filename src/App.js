@@ -236,12 +236,33 @@ export default function App() {
   const totExp    = monthData.expenses.reduce((s, e) => s + (+e.cost || 0), 0);
   const totInc    = monthData.incomes.reduce((s, i) => s + (+i.amount || 0), 0);
 
-  /* ── years for dropdown ── */
+  /* ── years for dropdown — ever-growing list ── */
   const years = useMemo(() => {
-    const s = new Set([CUR_YEAR - 1, CUR_YEAR, CUR_YEAR + 1]);
-    Object.keys(allData).forEach(k => { const p = parseKey(k); if (!isNaN(p.year)) s.add(p.year); });
-    return [...s].sort();
-  }, [allData]);
+    // Collect all years that have data
+    const dataYears = Object.keys(allData)
+      .map(k => parseKey(k).year)
+      .filter(y => !isNaN(y));
+
+    // Find the earliest year (either from data or last year)
+    const minYear = Math.min(CUR_YEAR - 1, ...dataYears);
+
+    // The max year should be:
+    // - At least current year + 1
+    // - Or selected year + 1 (so next year is always visible)
+    // - Or highest year in data + 1
+    const maxYear = Math.max(
+      CUR_YEAR + 1,
+      year + 1,           // ← THIS makes it ever-growing
+      ...dataYears.map(y => y + 1)
+    );
+
+    // Generate continuous range from min to max
+    const result = [];
+    for (let y = minYear; y <= maxYear; y++) {
+      result.push(y);
+    }
+    return result;
+  }, [allData, year]);
 
   /* ── all month keys across data ── */
   const allMonthKeys = useMemo(() => {
