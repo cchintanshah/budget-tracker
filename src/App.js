@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area
+  PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, Line, ComposedChart
 } from 'recharts';
 import * as XLSX from 'xlsx';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
 import './App.css';
 
 /* ═══════════════════════════════════════════
@@ -11,33 +13,33 @@ import './App.css';
    ═══════════════════════════════════════════ */
 
 const CATEGORIES = [
-  { name: 'Grocery',             color: '#10B981', icon: '🛒' },
-  { name: 'Eat Outside',         color: '#F59E0B', icon: '🍔' },
-  { name: 'Car Related',         color: '#EF4444', icon: '🚗' },
-  { name: 'Mobile',              color: '#8B5CF6', icon: '📱' },
-  { name: 'Presto - Commute',    color: '#06B6D4', icon: '🚌' },
-  { name: 'Utility',             color: '#F97316', icon: '💡' },
-  { name: 'Miscellaneous',       color: '#EC4899', icon: '📦' },
-  { name: 'Mortgage',            color: '#6366F1', icon: '🏠' },
+  { name: 'Grocery', color: '#10B981', icon: '🛒' },
+  { name: 'Eat Outside', color: '#F59E0B', icon: '🍔' },
+  { name: 'Car', color: '#EF4444', icon: '🚗' },
+  { name: 'Mobile', color: '#8B5CF6', icon: '📱' },
+  { name: 'Presto - Commute', color: '#06B6D4', icon: '🚌' },
+  { name: 'Utility', color: '#F97316', icon: '💡' },
+  { name: 'Miscellaneous', color: '#EC4899', icon: '📦' },
+  { name: 'Mortgage', color: '#6366F1', icon: '🏠' },
   { name: 'Remittance to India', color: '#14B8A6', icon: '💸' },
 ];
 
 const TENANT_CAP = 200;
-const MON_SHORT  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const MON_FULL   = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const CUR_YEAR   = new Date().getFullYear();
-const CUR_MONTH  = new Date().getMonth();
+const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MON_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const CUR_YEAR = new Date().getFullYear();
+const CUR_MONTH = new Date().getMonth();
 const SUPPORTS_FS = typeof window !== 'undefined' && 'showSaveFilePicker' in window;
 
 /* ═══════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════ */
 
-const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const fmt  = (n) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
-const mkKey   = (y, m) => `${MON_SHORT[m]} ${y}`;
+const fmt = (n) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(n || 0);
+const mkKey = (y, m) => `${MON_SHORT[m]} ${y}`;
 const parseKey = (key) => {
   const p = key.split(' ');
   return { year: +p[1], month: MON_SHORT.indexOf(p[0]) };
@@ -57,7 +59,7 @@ const calcSplit = (u) => {
   const tOverage = Math.max(0, tCalc - TENANT_CAP);
   return {
     total,
-    tenant:   { water: tW, gas: tG, elec: tE, calc: tCalc, overage: tOverage, actual: tOverage, isOver: tCalc > TENANT_CAP },
+    tenant: { water: tW, gas: tG, elec: tE, calc: tCalc, overage: tOverage, actual: tOverage, isOver: tCalc > TENANT_CAP },
     landlord: { totalBill: total, tenantReimbursement: tOverage, netCost: total - tOverage },
   };
 };
@@ -103,11 +105,11 @@ function buildWorkbook(allData) {
     // ── UTILITIES ──
     rows.push(['=== UTILITIES ===', '']);
     rows.push(['Item', 'Amount']);
-    rows.push(['Water (Full House)',       +(+utilities.water    || 0).toFixed(2)]);
-    rows.push(['Electricity (Basement)',   +(+utilities.elecBase || 0).toFixed(2)]);
-    rows.push(['Electricity (Main)',       +(+utilities.elecMain || 0).toFixed(2)]);
-    rows.push(['Gas (Full House)',         +(+utilities.gas      || 0).toFixed(2)]);
-    rows.push(['Internet',                +(+utilities.internet || 0).toFixed(2)]);
+    rows.push(['Water (Full House)', +(+utilities.water || 0).toFixed(2)]);
+    rows.push(['Electricity (Basement)', +(+utilities.elecBase || 0).toFixed(2)]);
+    rows.push(['Electricity (Main)', +(+utilities.elecMain || 0).toFixed(2)]);
+    rows.push(['Gas (Full House)', +(+utilities.gas || 0).toFixed(2)]);
+    rows.push(['Internet', +(+utilities.internet || 0).toFixed(2)]);
     rows.push([]);
 
     // ── SPLIT SUMMARY ──
@@ -162,9 +164,9 @@ function parseWorkbook(wb) {
     for (const row of rows) {
       const c0 = String(row?.[0] || '').trim();
 
-      if (c0 === '=== EXPENSES ===')      { mode = 'exp';  headerSkip = false; continue; }
-      if (c0 === '=== INCOME ===')        { mode = 'inc';  headerSkip = false; continue; }
-      if (c0 === '=== UTILITIES ===')     { mode = 'util'; headerSkip = false; continue; }
+      if (c0 === '=== EXPENSES ===') { mode = 'exp'; headerSkip = false; continue; }
+      if (c0 === '=== INCOME ===') { mode = 'inc'; headerSkip = false; continue; }
+      if (c0 === '=== UTILITIES ===') { mode = 'util'; headerSkip = false; continue; }
       if (c0 === '=== SPLIT SUMMARY ===' || c0 === '=== MONTH SUMMARY ===') { mode = null; continue; }
 
       if (mode && !headerSkip) { headerSkip = true; continue; }
@@ -179,12 +181,12 @@ function parseWorkbook(wb) {
       }
       if (mode === 'util') {
         const item = c0.toLowerCase();
-        const val  = String(row[1] || '');
-        if (item.includes('water'))            result.utilities.water    = val;
-        else if (item.includes('basement'))    result.utilities.elecBase = val;
-        else if (item.includes('main'))        result.utilities.elecMain = val;
-        else if (item.includes('gas'))         result.utilities.gas      = val;
-        else if (item.includes('internet'))    result.utilities.internet = val;
+        const val = String(row[1] || '');
+        if (item.includes('water')) result.utilities.water = val;
+        else if (item.includes('basement')) result.utilities.elecBase = val;
+        else if (item.includes('main')) result.utilities.elecMain = val;
+        else if (item.includes('gas')) result.utilities.gas = val;
+        else if (item.includes('internet')) result.utilities.internet = val;
       }
     }
     allData[name] = result;
@@ -193,7 +195,7 @@ function parseWorkbook(wb) {
 }
 
 async function writeToHandle(handle, allData) {
-  const wb   = buildWorkbook(allData);
+  const wb = buildWorkbook(allData);
   const wbuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([wbuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
@@ -215,26 +217,24 @@ function downloadWorkbook(allData) {
    ═══════════════════════════════════════════ */
 
 export default function App() {
-  const [allData, setAllData]     = useState(() => load('bpro_data', {}));
-  const [year, setYear]           = useState(CUR_YEAR);
-  const [monthIdx, setMonthIdx]   = useState(CUR_MONTH);
-  const [page, setPage]           = useState('dashboard');
-  const [fileConnected, setFileConnected] = useState(false);
-  const [fileName, setFileName]   = useState('');
-  const [saveStatus, setSaveStatus] = useState('idle');
-  const [sbOpen, setSbOpen]       = useState(window.innerWidth > 768);
+  const [allData, setAllData] = useState(() => load('bpro_data', {}));
+  const [year, setYear] = useState(CUR_YEAR);
+  const [monthIdx, setMonthIdx] = useState(CUR_MONTH);
+  const [page, setPage] = useState('dashboard');
+  const [cloudStatus, setCloudStatus] = useState('idle');
+  const [sbOpen, setSbOpen] = useState(window.innerWidth > 768);
+  const [isUnlocked, setIsUnlocked] = useState(() => sessionStorage.getItem('bpro_unlocked') === 'true');
 
-  const fileHandleRef = useRef(null);
-  const saveTimerRef  = useRef(null);
-  const firstRender   = useRef(true);
-  const fileInputRef  = useRef(null);
+  const cloudTimerRef = useRef(null);
+  const firstRender = useRef(true);
+  const dataLoaded = useRef(false);
 
-  const key       = mkKey(year, monthIdx);
+  const key = mkKey(year, monthIdx);
   const monthData = useMemo(() => allData[key] || { expenses: [], incomes: [], utilities: {} }, [allData, key]);
-  const split     = calcSplit(monthData.utilities);
-  const tenantP   = split?.tenant.actual || 0;
-  const totExp    = monthData.expenses.reduce((s, e) => s + (+e.cost || 0), 0);
-  const totInc    = monthData.incomes.reduce((s, i) => s + (+i.amount || 0), 0);
+  const split = calcSplit(monthData.utilities);
+  const tenantP = split?.tenant.actual || 0;
+  const totExp = monthData.expenses.reduce((s, e) => s + (+e.cost || 0), 0);
+  const totInc = monthData.incomes.reduce((s, i) => s + (+i.amount || 0), 0);
 
   /* ── years for dropdown — ever-growing list ── */
   const years = useMemo(() => {
@@ -271,24 +271,62 @@ export default function App() {
     return [...s].sort((a, b) => { const pa = parseKey(a), pb = parseKey(b); return (pa.year - pb.year) || (pa.month - pb.month); });
   }, [allData, key]);
 
-  /* ── auto-save to localStorage + file ── */
+  /* ── Initial Fetch from Firebase ── */
+  useEffect(() => {
+    async function loadCloudData() {
+      if (!db) {
+        setCloudStatus('disconnected');
+        dataLoaded.current = true;
+        return;
+      }
+      try {
+        setCloudStatus('loading');
+        const docSnap = await getDoc(doc(db, 'budget', 'mainData'));
+        
+        if (docSnap.exists() && Object.keys(docSnap.data().allData || {}).length > 0) {
+          // Cloud has data: Use Cloud as source of truth
+          const cloudData = docSnap.data().allData;
+          setAllData(cloudData);
+          save('bpro_data', cloudData);
+        } else {
+          // Cloud is empty. Do we have local legacy data?
+          if (Object.keys(allData).length > 0) {
+            console.log("Cloud empty. Pushing legacy local data to Firebase.");
+            await setDoc(doc(db, 'budget', 'mainData'), { allData });
+          }
+        }
+        setCloudStatus('synced');
+      } catch (e) {
+        console.error('Firebase load error:', e);
+        setCloudStatus('error');
+      } finally {
+        dataLoaded.current = true;
+      }
+    }
+    loadCloudData();
+  }, []);
+
+  /* ── auto-save to localStorage + file + cloud ── */
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
+    if (!dataLoaded.current) return; // don't overwrite if we haven't fetched from cloud yet
+    
+    // 1. Local Storage Backup
     save('bpro_data', allData);
 
-    if (fileHandleRef.current) {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      setSaveStatus('pending');
-      saveTimerRef.current = setTimeout(async () => {
+    // 2. Cloud Auto-Sync
+    if (db) {
+      if (cloudTimerRef.current) clearTimeout(cloudTimerRef.current);
+      setCloudStatus('syncing');
+      cloudTimerRef.current = setTimeout(async () => {
         try {
-          setSaveStatus('saving');
-          await writeToHandle(fileHandleRef.current, allData);
-          setSaveStatus('saved');
+          await setDoc(doc(db, 'budget', 'mainData'), { allData });
+          setCloudStatus('synced');
         } catch (e) {
-          console.error('File save error:', e);
-          setSaveStatus('error');
+          console.error('Firebase save error:', e);
+          setCloudStatus('error');
         }
-      }, 800);
+      }, 1000);
     }
   }, [allData]);
 
@@ -321,91 +359,38 @@ export default function App() {
   }, [year, monthIdx]);
 
   /* CRUD */
-  const addExp   = (e) => updateMonth(d => ({ ...d, expenses: [...d.expenses, { ...e, id: uid() }] }));
-  const delExp   = (id) => updateMonth(d => ({ ...d, expenses: d.expenses.filter(e => e.id !== id) }));
-  const updExp   = (id, u) => updateMonth(d => ({ ...d, expenses: d.expenses.map(e => e.id === id ? { ...e, ...u } : e) }));
-  const addInc   = (i) => updateMonth(d => ({ ...d, incomes: [...d.incomes, { ...i, id: uid() }] }));
-  const delInc   = (id) => updateMonth(d => ({ ...d, incomes: d.incomes.filter(i => i.id !== id) }));
+  const addExp = (e) => updateMonth(d => ({ ...d, expenses: [...d.expenses, { ...e, id: uid() }] }));
+  const delExp = (id) => updateMonth(d => ({ ...d, expenses: d.expenses.filter(e => e.id !== id) }));
+  const updExp = (id, u) => updateMonth(d => ({ ...d, expenses: d.expenses.map(e => e.id === id ? { ...e, ...u } : e) }));
+  const addInc = (i) => updateMonth(d => ({ ...d, incomes: [...d.incomes, { ...i, id: uid() }] }));
+  const delInc = (id) => updateMonth(d => ({ ...d, incomes: d.incomes.filter(i => i.id !== id) }));
   const saveUtil = (u) => updateMonth(d => ({ ...d, utilities: u }));
 
-  /* ── File System Access API ── */
-  const handleNewFile = async () => {
-    if (!SUPPORTS_FS) { downloadWorkbook(allData); return; }
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: 'BudgetPro.xlsx',
-        types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
-      });
-      fileHandleRef.current = handle;
-      setFileName(handle.name);
-      setFileConnected(true);
-      await writeToHandle(handle, allData);
-      setSaveStatus('saved');
-    } catch (e) { if (e.name !== 'AbortError') alert('Error: ' + e.message); }
-  };
 
-  const handleOpenFile = async () => {
-    if (!SUPPORTS_FS) { fileInputRef.current?.click(); return; }
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'Excel', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }]
-      });
-      fileHandleRef.current = handle;
-      setFileName(handle.name);
-      setFileConnected(true);
-      const file = await handle.getFile();
-      const buf  = await file.arrayBuffer();
-      const wb   = XLSX.read(buf);
-      const data = parseWorkbook(wb);
-      setAllData(data);
-      save('bpro_data', data);
-      setSaveStatus('saved');
-
-      // Navigate to first available month
-      const firstKey = Object.keys(data).sort((a, b) => { const pa = parseKey(a), pb = parseKey(b); return (pb.year - pa.year) || (pb.month - pa.month); })[0];
-      if (firstKey) { const p = parseKey(firstKey); setYear(p.year); setMonthIdx(p.month); }
-    } catch (e) { if (e.name !== 'AbortError') alert('Error: ' + e.message); }
-  };
-
-  /* fallback file input */
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const wb   = XLSX.read(ev.target.result);
-        const data = parseWorkbook(wb);
-        setAllData(data);
-        save('bpro_data', data);
-        setFileName(file.name);
-        const firstKey = Object.keys(data).sort((a, b) => { const pa = parseKey(a), pb = parseKey(b); return (pb.year - pa.year) || (pb.month - pa.month); })[0];
-        if (firstKey) { const p = parseKey(firstKey); setYear(p.year); setMonthIdx(p.month); }
-        alert('✅ Data loaded from ' + file.name);
-      } catch { alert('❌ Could not parse the file.'); }
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value = '';
-  };
 
   const handleDownload = () => downloadWorkbook(allData);
 
   const nav = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'budget',    label: 'Budget',    icon: '💰' },
+    { id: 'budget', label: 'Budget', icon: '💰' },
     { id: 'utilities', label: 'Utilities', icon: '⚡' },
-    { id: 'income',    label: 'Income',    icon: '💵' },
-    { id: 'settings',  label: 'Settings',  icon: '⚙️' },
+    { id: 'income', label: 'Income', icon: '💵' },
+    { id: 'settings', label: 'Settings', icon: '⚙️' },
   ];
 
   const isThe13 = new Date().getDate() === 13;
 
   return (
     <div className="app">
+      {!isUnlocked && (
+        <LockScreen onUnlock={() => { sessionStorage.setItem('bpro_unlocked', 'true'); setIsUnlocked(true); }} />
+      )}
+      {isUnlocked && (
+        <>
       {/* ── SIDEBAR ── */}
       <aside className={`sidebar ${sbOpen ? 'open' : ''}`}>
         <div className="sb-head">
-          {sbOpen && <h2>💰 BudgetPro</h2>}
+          {sbOpen && <h2>Budget Tracker</h2>}
           <button className="sb-toggle" onClick={() => setSbOpen(!sbOpen)}>{sbOpen ? '✕' : '☰'}</button>
         </div>
         <nav className="sb-nav">
@@ -418,9 +403,11 @@ export default function App() {
           ))}
         </nav>
         {sbOpen && (
-          <div className="sb-file-info">
-            <div className={`file-dot ${fileConnected ? 'green' : 'gray'}`} />
-            <span>{fileConnected ? fileName : 'No file'}</span>
+          <div className="sb-file-info" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className={`file-dot ${db && cloudStatus !== 'error' && cloudStatus !== 'disconnected' ? 'green' : 'gray'}`} />
+              <span>{db ? 'Cloud Database Connected' : 'Local Mode Only'}</span>
+            </div>
           </div>
         )}
       </aside>
@@ -444,66 +431,30 @@ export default function App() {
               {MON_FULL.map((m, i) => <option key={i} value={i}>{m}</option>)}
             </select>
 
-            <div className="tb-divider" />
-
-            {/* File buttons */}
-            <button className="btn btn-file" onClick={handleOpenFile} title="Open Excel File">📂</button>
-            <button className="btn btn-file" onClick={handleNewFile} title={SUPPORTS_FS ? 'Create / Save As' : 'Download Excel'}>
-              {SUPPORTS_FS ? '📝' : '📥'}
-            </button>
-            <button className="btn btn-file" onClick={handleDownload} title="Download Excel">💾</button>
-
-            {/* Save status */}
-            {fileConnected && (
-              <span className={`save-badge ${saveStatus}`}>
-                {saveStatus === 'saved' && '✅'}
-                {saveStatus === 'saving' && '⏳'}
-                {saveStatus === 'pending' && '🔄'}
-                {saveStatus === 'error' && '❌'}
-                {saveStatus === 'idle' && '💤'}
-              </span>
-            )}
+            {/* Export button */}
+            <button className="btn btn-file" onClick={handleDownload} title="Export Data to Excel">📥 Export To Excel</button>
           </div>
-          <input type="file" ref={fileInputRef} accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileUpload} />
         </header>
 
         {/* ── File Connection Banner ── */}
-        {!fileConnected && (
-          <div className="file-banner">
-            <span>📁</span>
+        {db && cloudStatus === 'disconnected' && (
+          <div className="file-banner" style={{ background: 'rgba(239, 68, 68, 0.1)', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <span>⚠️</span>
             <div>
-              <strong>Connect an Excel file</strong>
-              <p>Your budget data will be saved to an Excel file with each month as a separate tab.</p>
-            </div>
-            <div className="fb-actions">
-              <button className="btn btn-pri" onClick={handleOpenFile}>📂 Open Existing</button>
-              <button className="btn btn-sec" onClick={handleNewFile}>
-                {SUPPORTS_FS ? '📝 Create New' : '📥 Download Current'}
-              </button>
+              <strong style={{ color: '#F87171' }}>Firebase Database Configuration Missing</strong>
+              <p>Please edit `src/firebase.js` and paste your Firebase Web App configuration keys to enable permanent cloud storage.</p>
             </div>
           </div>
         )}
 
-        {isThe13 && (
-          <div className="reminder-banner">
-            🔔 <strong>Reminder:</strong> It's the 13th — add your utility costs!
-            <button onClick={() => setPage('utilities')}>Go to Utilities →</button>
-          </div>
-        )}
 
-        {/* ── Active Sheet Badge ── */}
-        <div className="sheet-badge-bar">
-          <span className="sheet-label">📄 Active Sheet:</span>
-          <span className="sheet-name">{key}</span>
-          {allData[key] && <span className="sheet-exists">● Exists in file</span>}
-          {!allData[key] && <span className="sheet-new">● New — will be created on first save</span>}
-        </div>
+
 
         <div className="content">
           {page === 'dashboard' && (
             <Dashboard allData={allData} monthData={monthData} split={split} tenantP={tenantP}
               totExp={totExp} totInc={totInc} year={year} monthIdx={monthIdx}
-              allMonthKeys={allMonthKeys} />
+              allMonthKeys={allMonthKeys} years={years} />
           )}
           {page === 'budget' && (
             <BudgetTracker expenses={monthData.expenses} addExp={addExp} delExp={delExp} updExp={updExp}
@@ -518,12 +469,60 @@ export default function App() {
           )}
           {page === 'settings' && (
             <Settings allData={allData} setAllData={setAllData}
-              fileConnected={fileConnected} fileName={fileName}
-              handleDownload={handleDownload} handleOpenFile={handleOpenFile}
-              fileInputRef={fileInputRef} />
+              cloudStatus={cloudStatus} db={db}
+              handleDownload={handleDownload} />
           )}
         </div>
       </main>
+      </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   LOCK SCREEN
+   ═══════════════════════════════════════════ */
+
+const APP_ACCESS_KEY = 'asdfg@8016';
+
+function LockScreen({ onUnlock }) {
+  const [inputKey, setInputKey] = useState('');
+  const [error, setError] = useState('');
+  const [shaking, setShaking] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (inputKey === APP_ACCESS_KEY) {
+      onUnlock();
+    } else {
+      setError('Incorrect access key. Please try again.');
+      setShaking(true);
+      setTimeout(() => setShaking(false), 500);
+      setInputKey('');
+    }
+  };
+
+  return (
+    <div className="lock-screen">
+      <div className={`lock-card ${shaking ? 'shake' : ''}`}>
+        <div className="lock-icon">🔐</div>
+        <h2>Budget Tracker</h2>
+        <p>Enter your access key to continue</p>
+        <form onSubmit={handleSubmit} className="lock-form">
+          <input
+            type="password"
+            placeholder="Access Key"
+            value={inputKey}
+            onChange={e => { setInputKey(e.target.value); setError(''); }}
+            autoFocus
+            className="lock-input"
+          />
+          {error && <span className="lock-error">{error}</span>}
+          <button type="submit" className="btn btn-pri lock-btn">🔓 Unlock</button>
+        </form>
+        <p className="lock-hint">This app is protected. Unauthorized access is prohibited.</p>
+      </div>
     </div>
   );
 }
@@ -532,10 +531,61 @@ export default function App() {
    DASHBOARD
    ═══════════════════════════════════════════ */
 
-function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, monthIdx, allMonthKeys }) {
-  const savings     = totInc - totExp - tenantP;
+function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, monthIdx, allMonthKeys, years }) {
+  const savings = totInc - totExp - tenantP;
   const totalOutflow = totExp + tenantP;
   const key = mkKey(year, monthIdx);
+
+  // Read saved layout from localStorage, fallback to default charts
+  const defaultOrder = ['cat-pie', 'top-exp', 'cat-bars', 'cat-month', 'inc-exp', 'sav-trend', 'util-trend', 'yearly-trend'];
+  const [chartOrder, setChartOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('bpro_chart_order');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return defaultOrder;
+  });
+
+  // Local state for the breakdown widget's independent month/year selection
+  const [breakdownYear, setBreakdownYear] = useState(year);
+  const [breakdownMonth, setBreakdownMonth] = useState(monthIdx);
+  
+  // Update local defaults if main dashboard month/year changes
+  useEffect(() => {
+    setBreakdownYear(year);
+    setBreakdownMonth(monthIdx);
+  }, [year, monthIdx]);
+
+  const localKey = mkKey(breakdownYear, breakdownMonth);
+  const localData = allData[localKey] || { expenses: [], incomes: [], utilities: {} };
+  const localSplit = calcSplit(localData.utilities);
+  const localTenantP = localSplit?.tenant.actual || 0;
+
+  const localCatData = useMemo(() => {
+    const m = {};
+    localData.expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + (+e.cost || 0); });
+    const r = CATEGORIES.map(c => ({ name: c.name, value: m[c.name] || 0, color: c.color })).filter(c => c.value > 0);
+    if (localTenantP > 0) r.push({ name: 'Tenant Overage', value: localTenantP, color: '#DC2626' });
+    return r;
+  }, [localData.expenses, localTenantP]);
+
+  const [draggedIdx, setDraggedIdx] = useState(null);
+
+  const handleDragStart = (idx) => setDraggedIdx(idx);
+  const handleDragEnter = (e, idx) => {
+    e.preventDefault();
+    if (draggedIdx === null || draggedIdx === idx) return;
+    const newOrder = [...chartOrder];
+    const item = newOrder[draggedIdx];
+    newOrder.splice(draggedIdx, 1);
+    newOrder.splice(idx, 0, item);
+    setDraggedIdx(idx);
+    setChartOrder(newOrder);
+  };
+  const handleDragEnd = () => {
+    setDraggedIdx(null);
+    localStorage.setItem('bpro_chart_order', JSON.stringify(chartOrder));
+  };
 
   const catData = useMemo(() => {
     const m = {};
@@ -547,22 +597,89 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
 
   const trend = useMemo(() => {
     return allMonthKeys.slice(-6).map(k => {
-      const d  = allData[k] || { expenses: [], incomes: [], utilities: {} };
+      const d = allData[k] || { expenses: [], incomes: [], utilities: {} };
       const sp = calcSplit(d.utilities);
       const tp = sp?.tenant.actual || 0;
       return {
         month: k,
-        Income:   d.incomes.reduce((s, i) => s + (+i.amount || 0), 0),
+        Income: d.incomes.reduce((s, i) => s + (+i.amount || 0), 0),
         Expenses: d.expenses.reduce((s, e) => s + (+e.cost || 0), 0) + tp,
       };
     });
   }, [allMonthKeys, allData]);
 
+  const topExpenses = useMemo(() => {
+    return [...monthData.expenses].sort((a, b) => (+b.cost || 0) - (+a.cost || 0)).slice(0, 5);
+  }, [monthData.expenses]);
+
+  const savingsTrend = useMemo(() => {
+    return allMonthKeys.slice(-6).map(k => {
+      const d = allData[k] || { expenses: [], incomes: [], utilities: {} };
+      const sp = calcSplit(d.utilities);
+      const tp = sp?.tenant.actual || 0;
+      const inc = d.incomes.reduce((s, i) => s + (+i.amount || 0), 0);
+      const exp = d.expenses.reduce((s, e) => s + (+e.cost || 0), 0) + tp;
+      const sav = inc - exp;
+      const rate = inc > 0 ? ((sav / inc) * 100).toFixed(1) : 0;
+      return { month: k, Savings: sav, 'Savings Rate %': +rate };
+    });
+  }, [allMonthKeys, allData]);
+
   const utilTrend = useMemo(() => {
     return allMonthKeys.slice(-6).map(k => {
-      const d  = allData[k] || { expenses: [], incomes: [], utilities: {} };
-      const sp = calcSplit(d.utilities);
-      return { month: k, 'Total Bill': sp?.total || 0, 'Tenant Overage': sp?.tenant.actual || 0, 'Landlord Net': sp?.landlord.netCost || 0 };
+      const d = allData[k] || { expenses: [], incomes: [], utilities: {} };
+      const u = d.utilities || {};
+      const water = +(u.water || 0);
+      const elecBase = +(u.elecBase || 0);
+      const elecMain = +(u.elecMain || 0);
+      const gas = +(u.gas || 0);
+      const internet = +(u.internet || 0);
+      return { 
+        month: k, 
+        Water: water,
+        'Elec (Base)': elecBase,
+        'Elec (Main)': elecMain,
+        Gas: gas,
+        Internet: internet,
+        Total: water + elecBase + elecMain + gas + internet
+      };
+    });
+  }, [allMonthKeys, allData]);
+
+  const yearlyCatTrend = useMemo(() => {
+    // Filter months that belong to the current year
+    const yearKeys = allMonthKeys.filter(k => k.startsWith(String(year)));
+    const catTotals = {};
+    yearKeys.forEach(k => {
+      const d = allData[k] || { expenses: [] };
+      d.expenses.forEach(e => {
+         catTotals[e.category] = (catTotals[e.category] || 0) + (+e.cost || 0);
+      });
+    });
+    
+    // Calculate average based on number of active months in that year 
+    // (or divide by 12 for a strict yearly average, let's use active months for better representation early in year)
+    const numMonths = yearKeys.length || 1;
+    
+    return CATEGORIES.map(c => ({
+      name: c.name,
+      average: catTotals[c.name] ? Math.round(catTotals[c.name] / numMonths) : 0,
+      color: c.color
+    })).filter(c => c.average > 0).sort((a,b) => b.average - a.average);
+  }, [allMonthKeys, allData, year]);
+
+  const catMonthData = useMemo(() => {
+    // Build a bar per category showing amount spent across the last 6 months
+    // Each entry: { month, [catName]: amount, ... }
+    return allMonthKeys.slice(-6).map(k => {
+      const d = allData[k] || { expenses: [] };
+      const entry = { month: k };
+      CATEGORIES.forEach(c => {
+        entry[c.name] = d.expenses
+          .filter(e => e.category === c.name)
+          .reduce((s, e) => s + (+e.cost || 0), 0);
+      });
+      return entry;
     });
   }, [allMonthKeys, allData]);
 
@@ -571,120 +688,212 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   const prevExp = prevKey ? (allData[prevKey]?.expenses || []).reduce((s, e) => s + (+e.cost || 0), 0) : 0;
   const expChange = prevExp ? (((totExp - prevExp) / prevExp) * 100).toFixed(1) : null;
 
+  const expPct = totInc > 0 ? Math.round((totExp / totInc) * 100) : 0;
+  const savPct = totInc > 0 ? Math.round((savings / totInc) * 100) : 0;
+
   return (
     <div className="dashboard">
       <div className="cards-grid">
         <SumCard icon="💵" label="Total Income" value={fmt(totInc)} cls="inc" />
         <SumCard icon="💸" label="Budget Expenses" value={fmt(totExp)} cls="exp"
-          sub={expChange !== null ? `${expChange > 0 ? '↑' : '↓'} ${Math.abs(expChange)}% vs prev month` : null}
-          subColor={expChange > 0 ? '#EF4444' : '#10B981'} />
+          sub={expPct > 0 ? `${expPct}% of income` : ''}
+          subColor="#94A3B8" />
         <SumCard icon={savings >= 0 ? '📈' : '📉'} label="Net Savings" value={fmt(savings)} cls="sav"
-          valueColor={savings >= 0 ? '#10B981' : '#EF4444'} />
+          valueColor={savings >= 0 ? '#10B981' : '#EF4444'}
+          sub={savPct !== 0 ? `${savPct}% of income` : ''}
+          subColor="#94A3B8" />
         <SumCard icon="⚡" label="Utility Total" value={fmt(split?.total || 0)} cls="utl" />
       </div>
 
-      {/* Tenant Overage Banner */}
-      {tenantP > 0 && (
-        <div className="tenant-overage-banner">
-          <div className="tob-left">
-            <span className="tob-icon">🏠</span>
-            <div>
-              <h4>Tenant Utility Overage</h4>
-              <p>Share ({fmt(split?.tenant.calc)}) exceeds ${TENANT_CAP} cap by <strong>{fmt(tenantP)}</strong>.</p>
-            </div>
-          </div>
-          <div className="tob-right">
-            <span className="tob-amount">{fmt(tenantP)}</span>
-            <span className="tob-label">Tenant Owes</span>
-          </div>
-        </div>
-      )}
-      {tenantP === 0 && split && split.total > 0 && (
-        <div className="tenant-zero-banner">
-          <span>✅</span>
-          <div><strong>Tenant owes $0</strong><p>Calc ({fmt(split.tenant.calc)}) ≤ ${TENANT_CAP}. Landlord covers full {fmt(split.total)}.</p></div>
-        </div>
-      )}
+      <p style={{ color: '#64748B', fontSize: '0.85rem', marginBottom: '12px' }}>💡 Tip: Drag and drop the charts below to rearrange your dashboard.</p>
 
-      {/* Outflow Summary */}
-      <div className="outflow-summary">
-        <div className="os-row"><span>Budget Expenses</span><span>{fmt(totExp)}</span></div>
-        {tenantP > 0 && <div className="os-row tenant-row"><span>+ Tenant Utility Overage</span><span className="tenant-highlight">{fmt(tenantP)}</span></div>}
-        <div className="os-row os-total"><span>Total Outflow</span><span>{fmt(totalOutflow)}</span></div>
-        <div className={`os-row os-savings ${savings >= 0 ? 'positive' : 'negative'}`}>
-          <span>Net Savings</span><span>{fmt(savings)}</span>
-        </div>
-      </div>
+      {/* Dynamic Draggable Charts Grid */}
+      <div className="draggable-charts-grid">
+        {chartOrder.map((chartId, idx) => {
+          let content = null;
+          let title = '';
 
-      {/* Charts */}
-      <div className="charts-row">
-        <div className="chart-card">
-          <h3>Spending by Category</h3>
-          {catData.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie data={catData} cx="50%" cy="50%" outerRadius={100} innerRadius={50} dataKey="value" paddingAngle={2}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  {catData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip formatter={v => fmt(v)} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : <Empty />}
-        </div>
-        <div className="chart-card">
-          <h3>Income vs Expenses Trend</h3>
-          {trend.length ? (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={trend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={v => fmt(v)} />
-                <Legend />
-                <Bar dataKey="Income" fill="#10B981" radius={[6, 6, 0, 0]} />
-                <Bar dataKey="Expenses" fill="#EF4444" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : <Empty />}
-        </div>
-      </div>
+          if (chartId === 'cat-pie') {
+            title = 'Spending by Category';
+            content = catData.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie data={catData} cx="50%" cy="50%" outerRadius={105} innerRadius={55} dataKey="value" paddingAngle={3} label={({ name, percent }) => `${(percent * 100).toFixed(0)}%`} labelLine={false}>
+                    {catData.map((e, i) => <Cell key={i} fill={e.color} stroke="transparent" />)}
+                  </Pie>
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9', fontWeight: 700 }} />
+                  <Legend wrapperStyle={{ fontSize: 11, color: '#94A3B8' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          } 
+          
+          else if (chartId === 'top-exp') {
+            title = 'Top Expenses This Month';
+            content = topExpenses.length ? (
+              <div className="top-exp-list">
+                {topExpenses.map(e => {
+                  const cat = CATEGORIES.find(c => c.name === e.category);
+                  return (
+                    <div key={e.id} className="top-exp-item">
+                      <div className="te-left">
+                        <span className="te-icon" style={{ background: cat?.color + '18', color: cat?.color, border: `1px solid ${cat?.color}44` }}>{cat?.icon}</span>
+                        <div className="te-info"><span className="te-desc">{e.description}</span><span className="te-cat" style={{ color: cat?.color }}>{e.category}</span></div>
+                      </div>
+                      <span className="te-val">{fmt(e.cost)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : <Empty />;
+          } 
+          
+          else if (chartId === 'inc-exp') {
+            title = 'Income vs Expenses Trend';
+            content = trend.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={trend} barCategoryGap="28%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9', fontWeight: 700 }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
+                  <Bar dataKey="Income" fill="#10B981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="Expenses" fill="#6366F1" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          } 
+          
+          else if (chartId === 'sav-trend') {
+            title = 'Net Savings & Rate Trend';
+            content = savingsTrend.some(d => d.Savings !== 0) ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <ComposedChart data={savingsTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={v => typeof v === 'number' && v > 100 ? fmt(v) : v + '%'} contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9', fontWeight: 700 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
+                  <Bar yAxisId="left" dataKey="Savings" fill="#22D3EE" radius={[6, 6, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="Savings Rate %" stroke="#A78BFA" strokeWidth={3} dot={{ r: 4, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          }
 
-      <div className="charts-row">
-        <div className="chart-card">
-          <h3>Utility Trend</h3>
-          {utilTrend.some(d => d['Total Bill'] > 0) ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <AreaChart data={utilTrend}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={v => fmt(v)} />
-                <Legend />
-                <Area type="monotone" dataKey="Total Bill" stroke="#F97316" fill="#FFEDD5" strokeWidth={2} />
-                <Area type="monotone" dataKey="Tenant Overage" stroke="#DC2626" fill="#FEE2E2" strokeWidth={2} />
-                <Area type="monotone" dataKey="Landlord Net" stroke="#06B6D4" fill="#CFFAFE" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : <Empty />}
-        </div>
-        <div className="chart-card">
-          <h3>Category Breakdown</h3>
-          {catData.length ? (
-            <div className="cat-bars">
-              {[...catData].sort((a, b) => b.value - a.value).map(c => {
-                const maxV = Math.max(...catData.map(x => x.value));
-                return (
-                  <div key={c.name} className={`cat-bar-row ${c.name === 'Tenant Overage' ? 'tenant-bar' : ''}`}>
-                    <span className="cb-name">{c.name}</span>
-                    <div className="cb-track"><div className="cb-fill" style={{ width: `${(c.value / maxV) * 100}%`, background: c.color }} /></div>
-                    <span className="cb-val">{fmt(c.value)}</span>
+          else if (chartId === 'util-trend') {
+            title = 'Utility Breakdown Trend';
+            content = utilTrend.some(d => d.Total > 0) ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={utilTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9' }} labelStyle={{ color: '#F1F5F9', fontWeight: 700 }} />
+                  <Legend wrapperStyle={{ fontSize: 12, color: '#94A3B8' }} />
+                  <Area type="monotone" dataKey="Elec (Base)" stackId="1" stroke="#FBBF24" fill="#FBBF24" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Elec (Main)" stackId="1" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Gas" stackId="1" stroke="#EF4444" fill="#EF4444" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Water" stackId="1" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.6} />
+                  <Area type="monotone" dataKey="Internet" stackId="1" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.6} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          }
+
+          else if (chartId === 'cat-month') {
+            title = 'Category Expense by Month';
+            const hasData = catMonthData.some(d => CATEGORIES.some(c => d[c.name] > 0));
+            content = hasData ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={catMonthData} barCategoryGap="20%" barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <Tooltip
+                    formatter={(v, name) => [fmt(v), name]}
+                    contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9', maxHeight: '300px', overflow: 'auto' }}
+                    labelStyle={{ color: '#F1F5F9', fontWeight: 700 }}
+                    cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10, color: '#94A3B8' }} />
+                  {CATEGORIES.map(c => (
+                    <Bar key={c.name} dataKey={c.name} stackId="a" fill={c.color} radius={c.name === CATEGORIES[CATEGORIES.length - 1].name ? [4, 4, 0, 0] : [0,0,0,0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          }
+
+          else if (chartId === 'yearly-trend') {
+            title = `Yearly Category Average (${year})`;
+            content = yearlyCatTrend.length ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={yearlyCatTrend} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#64748B' }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748B' }} width={80} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={v => fmt(v)} contentStyle={{ background: '#1A1A28', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#F1F5F9' }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Bar dataKey="average" radius={[0, 4, 4, 0]}>
+                    {yearlyCatTrend.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <Empty />;
+          }
+
+          else if (chartId === 'cat-bars') {
+            title = 'Monthly Category Breakdown';
+            content = (
+              <div className="breakdown-widget">
+                <div className="widget-header">
+                  <div className="widget-selectors">
+                    <select value={breakdownMonth} onChange={e => setBreakdownMonth(+e.target.value)} className="small-sel">
+                      {MON_FULL.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                    </select>
+                    <select value={breakdownYear} onChange={e => setBreakdownYear(+e.target.value)} className="small-sel">
+                      {years.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
                   </div>
-                );
-              })}
+                </div>
+                {localCatData.length ? (
+                  <div className="cat-bars">
+                    {[...localCatData].sort((a, b) => b.value - a.value).map(c => {
+                      const maxV = Math.max(...localCatData.map(x => x.value));
+                      return (
+                        <div key={c.name} className={`cat-bar-row ${c.name === 'Tenant Overage' ? 'tenant-bar' : ''}`}>
+                          <span className="cb-name">{c.name}</span>
+                          <div className="cb-track"><div className="cb-fill" style={{ width: `${(c.value / maxV) * 100}%`, background: c.color }} /></div>
+                          <span className="cb-val">{fmt(c.value)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <Empty />}
+              </div>
+            );
+          }
+
+          return (
+            <div 
+              key={chartId}
+              draggable
+              onDragStart={() => handleDragStart(idx)}
+              onDragEnter={(e) => handleDragEnter(e, idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDragEnd={handleDragEnd}
+              className={`chart-card draggable-card ${draggedIdx === idx ? 'dragging' : ''}`}
+            >
+              <div className="drag-handle">⋮⋮</div>
+              <h3>{title}</h3>
+              {content}
             </div>
-          ) : <Empty />}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -693,7 +902,9 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
 function SumCard({ icon, label, value, cls, sub, subColor, valueColor }) {
   return (
     <div className={`sum-card ${cls}`}>
-      <div className="sc-icon">{icon}</div>
+      <div className="sc-top">
+        <div className="sc-icon">{icon}</div>
+      </div>
       <div className="sc-info">
         <span className="sc-label">{label}</span>
         <span className="sc-value" style={valueColor ? { color: valueColor } : {}}>{value}</span>
@@ -703,7 +914,14 @@ function SumCard({ icon, label, value, cls, sub, subColor, valueColor }) {
   );
 }
 
-function Empty() { return <div className="empty-chart">No data for this month</div>; }
+function Empty() {
+  return (
+    <div className="empty-chart">
+      <span style={{ fontSize: 28, opacity: 0.3 }}>📊</span>
+      <span>No data yet for this month</span>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════
    BUDGET TRACKER
@@ -711,7 +929,7 @@ function Empty() { return <div className="empty-chart">No data for this month</d
 
 function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totExp, tenantP }) {
   const blank = { date: dateDefault(year, monthIdx), description: '', cost: '', category: CATEGORIES[0].name };
-  const [form, setForm]     = useState(blank);
+  const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState('All');
 
@@ -725,7 +943,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
     setForm(blank);
   };
 
-  const startEdit  = exp => { setForm({ date: exp.date, description: exp.description, cost: exp.cost, category: exp.category }); setEditId(exp.id); };
+  const startEdit = exp => { setForm({ date: exp.date, description: exp.description, cost: exp.cost, category: exp.category }); setEditId(exp.id); };
   const cancelEdit = () => { setEditId(null); setForm(blank); };
 
   const filtered = filter === 'All' ? expenses : expenses.filter(e => e.category === filter);
@@ -752,19 +970,6 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
         </form>
       </div>
 
-      {/* Budget summary with tenant portion */}
-      <div className="card budget-summary-card">
-        <h3>📊 Monthly Budget Summary — {mkKey(year, monthIdx)}</h3>
-        <div className="budget-summary-grid">
-          <div className="bs-item"><span className="bs-label">Budget Expenses</span><span className="bs-value">{fmt(totExp)}</span></div>
-          <div className={`bs-item ${tenantP > 0 ? 'bs-tenant-active' : 'bs-tenant-zero'}`}>
-            <span className="bs-label">🏠 Tenant Overage</span><span className="bs-value">{fmt(tenantP)}</span>
-          </div>
-          <div className="bs-item bs-total"><span className="bs-label">Total Outflow</span><span className="bs-value">{fmt(totExp + tenantP)}</span></div>
-        </div>
-        {tenantP > 0 && <div className="tenant-note">⚠️ <strong>{fmt(tenantP)}</strong> owed by tenant (utility overage above ${TENANT_CAP} cap).</div>}
-        {tenantP === 0 && <div className="tenant-note-ok">✅ No tenant utility overage this month.</div>}
-      </div>
 
       {/* Category chips */}
       <div className="card">
@@ -803,19 +1008,19 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
               {filtered.length === 0 && tenantP === 0
                 ? <tr><td colSpan="5" className="empty-row">No expenses</td></tr>
                 : [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(exp => {
-                    const cat = CATEGORIES.find(c => c.name === exp.category);
-                    return (
-                      <tr key={exp.id}>
-                        <td>{exp.date}</td><td>{exp.description}</td>
-                        <td><span className="badge" style={{ background: cat?.color + '18', color: cat?.color, border: `1px solid ${cat?.color}44` }}>{cat?.icon} {exp.category}</span></td>
-                        <td className="amt">{fmt(exp.cost)}</td>
-                        <td className="actions">
-                          <button onClick={() => startEdit(exp)} title="Edit">✏️</button>
-                          <button onClick={() => delExp(exp.id)} title="Delete">🗑️</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  const cat = CATEGORIES.find(c => c.name === exp.category);
+                  return (
+                    <tr key={exp.id}>
+                      <td>{exp.date}</td><td>{exp.description}</td>
+                      <td><span className="badge" style={{ background: cat?.color + '18', color: cat?.color, border: `1px solid ${cat?.color}44` }}>{cat?.icon} {exp.category}</span></td>
+                      <td className="amt">{fmt(exp.cost)}</td>
+                      <td className="actions">
+                        <button onClick={() => startEdit(exp)} title="Edit">✏️</button>
+                        <button onClick={() => delExp(exp.id)} title="Delete">🗑️</button>
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
             {(filtered.length > 0 || tenantP > 0) && (
               <tfoot><tr className="tfoot-row"><td colSpan="3"><strong>Total</strong></td><td className="amt"><strong>{fmt(totExp + (filter === 'All' ? tenantP : 0))}</strong></td><td></td></tr></tfoot>
@@ -834,7 +1039,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
 function UtilityManager({ util, save: saveUtil, sheetKey }) {
   const blank = { water: '', elecBase: '', elecMain: '', gas: '', internet: '' };
   const [form, setForm] = useState(blank);
-  const [tab, setTab]   = useState('tenant');
+  const [tab, setTab] = useState('tenant');
 
   useEffect(() => { setForm(util && Object.keys(util).length ? util : blank); }, [util, sheetKey]); // eslint-disable-line
 
@@ -847,7 +1052,7 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
         <h3>⚡ Utility Costs — {sheetKey}</h3>
         <form onSubmit={handleSave} className="util-form">
           <div className="uf-grid">
-            {[['🚿 Water (Full House)', 'water'],['💡 Electricity (Basement)', 'elecBase'],['💡 Electricity (Main Unit)', 'elecMain'],['🔥 Gas (Full House)', 'gas'],['🌐 Internet', 'internet']].map(([lbl, k]) => (
+            {[['🚿 Water (Full House)', 'water'], ['💡 Electricity (Basement)', 'elecBase'], ['💡 Electricity (Main Unit)', 'elecMain'], ['🔥 Gas (Full House)', 'gas'], ['🌐 Internet', 'internet']].map(([lbl, k]) => (
               <div key={k} className="fg">
                 <label>{lbl}</label>
                 <input type="number" step="0.01" min="0" placeholder="0.00" value={form[k]} onChange={e => setForm({ ...form, [k]: e.target.value })} />
@@ -860,23 +1065,8 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
           </div>
         </form>
       </div>
-
       {sp && sp.total > 0 && (
         <>
-          {/* Rules */}
-          <div className="card rules-card">
-            <h3>📐 Split Rules</h3>
-            <div className="rules-grid">
-              <div className="rule"><span className="rule-icon">🚿</span><div><strong>Water</strong><br/>T: 40% · L: 60%</div></div>
-              <div className="rule"><span className="rule-icon">💡</span><div><strong>Elec (Basement)</strong><br/>T: 100% · L: 0%</div></div>
-              <div className="rule"><span className="rule-icon">💡</span><div><strong>Elec (Main)</strong><br/>T: 0% · L: 100%</div></div>
-              <div className="rule"><span className="rule-icon">🔥</span><div><strong>Gas</strong><br/>T: 40% · L: 60%</div></div>
-              <div className="rule"><span className="rule-icon">🌐</span><div><strong>Internet</strong><br/>T: 0% · L: 100%</div></div>
-              <div className="rule rule-cap"><span className="rule-icon">🎯</span><div><strong>Cap: ${TENANT_CAP}</strong><br/>Tenant pays $0 if under. Only overage above ${TENANT_CAP}.</div></div>
-            </div>
-          </div>
-
-          {/* Tabs */}
           <div className="card">
             <div className="tab-bar">
               <button className={`tab ${tab === 'tenant' ? 'on' : ''}`} onClick={() => setTab('tenant')}>🏠 Tenant</button>
@@ -982,10 +1172,10 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
               {incomes.length === 0
                 ? <tr><td colSpan="4" className="empty-row">No income recorded</td></tr>
                 : [...incomes].sort((a, b) => b.date.localeCompare(a.date)).map(inc => (
-                    <tr key={inc.id}><td>{inc.date}</td><td>{inc.description}</td>
+                  <tr key={inc.id}><td>{inc.date}</td><td>{inc.description}</td>
                     <td className="amt inc-amt">{fmt(inc.amount)}</td>
                     <td className="actions"><button onClick={() => delInc(inc.id)}>🗑️</button></td></tr>
-                  ))}
+                ))}
             </tbody>
           </table>
         </div>
@@ -998,7 +1188,7 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
    SETTINGS
    ═══════════════════════════════════════════ */
 
-function Settings({ allData, setAllData, fileConnected, fileName, handleDownload, handleOpenFile, fileInputRef }) {
+function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
   const reqNotif = () => {
     if ('Notification' in window) {
       Notification.requestPermission().then(p => alert(p === 'granted' ? '✅ Enabled!' : '❌ Denied'));
@@ -1006,78 +1196,27 @@ function Settings({ allData, setAllData, fileConnected, fileName, handleDownload
   };
 
   const sheetCount = Object.keys(allData).length;
-  const totalExp   = Object.values(allData).reduce((s, d) => s + (d.expenses?.length || 0), 0);
-  const totalInc   = Object.values(allData).reduce((s, d) => s + (d.incomes?.length || 0), 0);
+  const totalExp = Object.values(allData).reduce((s, d) => s + (d.expenses?.length || 0), 0);
+  const totalInc = Object.values(allData).reduce((s, d) => s + (d.incomes?.length || 0), 0);
 
   return (
     <div className="page-settings">
       {/* File Status */}
       <div className="card">
-        <h3>📁 Excel File Status</h3>
+        <h3>🗄️ Storage Status</h3>
         <div className="file-status-grid">
-          <div className={`fs-card ${fileConnected ? 'connected' : 'disconnected'}`}>
-            <span className="fs-icon">{fileConnected ? '🟢' : '🔴'}</span>
+          
+          <div className={`fs-card ${db && cloudStatus !== 'error' && cloudStatus !== 'disconnected' ? 'connected' : 'disconnected'}`}>
+            <span className="fs-icon">☁️</span>
             <div>
-              <strong>{fileConnected ? 'Connected' : 'Not Connected'}</strong>
-              <p>{fileConnected ? fileName : 'No file linked — data saved in browser only'}</p>
+              <strong>Firebase Cloud Database</strong>
+              <p>{db ? `Status: ${cloudStatus.toUpperCase()}` : 'Keys missing in src/firebase.js'}</p>
             </div>
           </div>
-          <div className="fs-card">
-            <span className="fs-icon">📊</span>
-            <div><strong>{sheetCount} month tabs</strong><p>{totalExp} expenses · {totalInc} income entries</p></div>
-          </div>
+
         </div>
         <div className="set-actions" style={{ marginTop: 16 }}>
-          <button className="btn btn-pri" onClick={handleOpenFile}>📂 Open File</button>
-          <button className="btn btn-sec" onClick={handleDownload}>📥 Download Excel</button>
-        </div>
-        {!SUPPORTS_FS && (
-          <div className="info-box warn" style={{ marginTop: 12 }}>
-            ⚠️ Your browser doesn't support auto-save to file. Use Chrome or Edge for auto-sync.
-            Data is saved in your browser (localStorage). Use "Download Excel" to export.
-          </div>
-        )}
-      </div>
-
-      {/* Notifications */}
-      <div className="card">
-        <h3>🔔 Notifications</h3>
-        <p className="desc">Get reminded on the 13th to add utility costs.</p>
-        <div className="set-section">
-          <button className="btn btn-pri" onClick={reqNotif}>Enable Browser Notifications</button>
-          <span className="notif-stat">
-            Status: {typeof Notification !== 'undefined' ? Notification.permission : 'Not supported'}
-          </span>
-        </div>
-      </div>
-
-      {/* Data Management */}
-      <div className="card">
-        <h3>🗄️ Data Management</h3>
-        <p className="desc">All data is also cached in localStorage as backup.</p>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-danger" onClick={() => {
-            if (window.confirm('Delete ALL data? Cannot undo.')) { localStorage.removeItem('bpro_data'); setAllData({}); }
-          }}>🗑️ Clear All Data</button>
-          <button className="btn btn-sec" onClick={() => {
-            const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'budgetpro_backup.json'; a.click();
-          }}>💾 Backup JSON</button>
-          <label className="btn btn-sec" style={{ cursor: 'pointer' }}>
-            📂 Restore JSON
-            <input type="file" accept=".json" style={{ display: 'none' }} onChange={e => {
-              const file = e.target.files[0]; if (!file) return;
-              const reader = new FileReader();
-              reader.onload = ev => {
-                try {
-                  const d = JSON.parse(ev.target.result);
-                  setAllData(d); save('bpro_data', d);
-                  alert('Restored! Reloading...');
-                } catch { alert('Invalid file.'); }
-              };
-              reader.readAsText(file);
-            }} />
-          </label>
+          <button className="btn btn-sec" onClick={handleDownload}>📥 Export Data to Excel</button>
         </div>
       </div>
     </div>
