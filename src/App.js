@@ -5,7 +5,15 @@ import {
 } from 'recharts';
 import * as XLSX from 'xlsx';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { httpsCallable } from 'firebase/functions';
+import { db, auth, functions } from './firebase';
+import {
+  ShoppingCart, Utensils, Car, Smartphone, Bus, Lightbulb, Package, Home, Send,
+  LayoutDashboard, Wallet, Zap, ArrowDownToLine, Settings as SettingsIcon, Banknote, Coins, TrendingUp, TrendingDown,
+  Lock, Unlock, Edit, Plus, ClipboardList, CreditCard, Droplet, Flame, Globe, Building2, Save, Trash2,
+  Check, X, Database, Cloud, Download
+} from 'lucide-react';
 import './App.css';
 
 /* ═══════════════════════════════════════════
@@ -13,15 +21,15 @@ import './App.css';
    ═══════════════════════════════════════════ */
 
 const CATEGORIES = [
-  { name: 'Grocery', color: '#10B981', icon: '🛒' },
-  { name: 'Eat Outside', color: '#F59E0B', icon: '🍔' },
-  { name: 'Car', color: '#EF4444', icon: '🚗' },
-  { name: 'Mobile', color: '#8B5CF6', icon: '📱' },
-  { name: 'Presto - Commute', color: '#06B6D4', icon: '🚌' },
-  { name: 'Utility', color: '#F97316', icon: '💡' },
-  { name: 'Miscellaneous', color: '#EC4899', icon: '📦' },
-  { name: 'Mortgage', color: '#6366F1', icon: '🏠' },
-  { name: 'Remittance to India', color: '#14B8A6', icon: '💸' },
+  { name: 'Grocery', color: '#10B981', icon: <ShoppingCart size={18} /> },
+  { name: 'Eat Outside', color: '#F59E0B', icon: <Utensils size={18} /> },
+  { name: 'Car', color: '#EF4444', icon: <Car size={18} /> },
+  { name: 'Mobile', color: '#8B5CF6', icon: <Smartphone size={18} /> },
+  { name: 'Presto - Commute', color: '#06B6D4', icon: <Bus size={18} /> },
+  { name: 'Utility', color: '#F97316', icon: <Lightbulb size={18} /> },
+  { name: 'Miscellaneous', color: '#EC4899', icon: <Package size={18} /> },
+  { name: 'Mortgage', color: '#6366F1', icon: <Home size={18} /> },
+  { name: 'Remittance to India', color: '#14B8A6', icon: <Send size={18} /> },
 ];
 
 const TENANT_CAP = 200;
@@ -223,7 +231,29 @@ export default function App() {
   const [page, setPage] = useState('dashboard');
   const [cloudStatus, setCloudStatus] = useState('idle');
   const [sbOpen, setSbOpen] = useState(window.innerWidth > 768);
-  const [isUnlocked, setIsUnlocked] = useState(() => sessionStorage.getItem('bpro_unlocked') === 'true');
+  const [isUnlocked, setIsUnlocked] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // Check Firebase Auth state for secure persistent sessions
+  useEffect(() => {
+    if (!auth) {
+      // Fallback if not configured
+      setIsUnlocked(sessionStorage.getItem('bpro_unlocked') === 'true');
+      setAuthChecking(false);
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // Since we verify the key before calling signInAnonymously, 
+      // if a user object exists, they have already been verified.
+      if (user) {
+        setIsUnlocked(true);
+      } else {
+        setIsUnlocked(false);
+      }
+      setAuthChecking(false);
+    });
+    return unsubscribe;
+  }, []);
 
   const cloudTimerRef = useRef(null);
   const firstRender = useRef(true);
@@ -274,6 +304,9 @@ export default function App() {
   /* ── Initial Fetch from Firebase ── */
   useEffect(() => {
     async function loadCloudData() {
+      // ONLY pull from cloud once we have unlocked/authenticated!
+      if (!isUnlocked) return;
+
       if (!db) {
         setCloudStatus('disconnected');
         dataLoaded.current = true;
@@ -304,7 +337,7 @@ export default function App() {
       }
     }
     loadCloudData();
-  }, []);
+  }, [isUnlocked]);
 
   /* ── auto-save to localStorage + file + cloud ── */
   useEffect(() => {
@@ -371,21 +404,27 @@ export default function App() {
   const handleDownload = () => downloadWorkbook(allData);
 
   const nav = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'budget', label: 'Budget', icon: '💰' },
-    { id: 'utilities', label: 'Utilities', icon: '⚡' },
-    { id: 'income', label: 'Income', icon: '💵' },
-    { id: 'settings', label: 'Settings', icon: '⚙️' },
+    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} /> },
+    { id: 'budget', label: 'Budget', icon: <Wallet size={20} /> },
+    { id: 'utilities', label: 'Utilities', icon: <Zap size={20} /> },
+    { id: 'income', label: 'Income', icon: <ArrowDownToLine size={20} /> },
+    { id: 'settings', label: 'Settings', icon: <SettingsIcon size={20} /> },
   ];
 
   const isThe13 = new Date().getDate() === 13;
 
   return (
     <div className="app">
-      {!isUnlocked && (
-        <LockScreen onUnlock={() => { sessionStorage.setItem('bpro_unlocked', 'true'); setIsUnlocked(true); }} />
+      {authChecking && (
+        <div className="lock-screen"><div className="lock-card"><h2>Loading secure environment...</h2></div></div>
       )}
-      {isUnlocked && (
+      {!isUnlocked && !authChecking && (
+        <LockScreen onUnlock={() => {
+          sessionStorage.setItem('bpro_unlocked', 'true');
+          setIsUnlocked(true);
+        }} />
+      )}
+      {isUnlocked && !authChecking && (
         <>
       {/* ── SIDEBAR ── */}
       <aside className={`sidebar ${sbOpen ? 'open' : ''}`}>
@@ -432,7 +471,9 @@ export default function App() {
             </select>
 
             {/* Export button */}
-            <button className="btn btn-file" onClick={handleDownload} title="Export Data to Excel">📥 Export To Excel</button>
+            <button className="btn btn-file" onClick={handleDownload} title="Export Data to Excel" style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <Download size={18} /> Export To Excel
+            </button>
           </div>
         </header>
 
@@ -490,23 +531,50 @@ function LockScreen({ onUnlock }) {
   const [inputKey, setInputKey] = useState('');
   const [error, setError] = useState('');
   const [shaking, setShaking] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (inputKey === APP_ACCESS_KEY) {
-      onUnlock();
-    } else {
-      setError('Incorrect access key. Please try again.');
-      setShaking(true);
-      setTimeout(() => setShaking(false), 500);
-      setInputKey('');
+    if (!inputKey.trim()) return;
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      if (inputKey === APP_ACCESS_KEY) {
+        // Correct key! Log into Firebase anonymously to gain database access rules
+        if (auth) {
+          await signInAnonymously(auth);
+        }
+        
+        sessionStorage.setItem('bpro_unlocked', 'true');
+        onUnlock();
+      } else {
+        showError('Incorrect access key. Please try again.');
+      }
+    } catch (err) {
+      console.error("LockScreen Login Error:", err);
+      if (err.code === 'auth/operation-not-allowed') {
+        showError('Please enable "Anonymous" provider in Firebase Console > Authentication.');
+      } else {
+        showError('Login failed. Please check connection.');
+      }
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  const showError = (msg) => {
+    setError(msg);
+    setShaking(true);
+    setTimeout(() => setShaking(false), 500);
+    setInputKey('');
   };
 
   return (
     <div className="lock-screen">
       <div className={`lock-card ${shaking ? 'shake' : ''}`}>
-        <div className="lock-icon">🔐</div>
+        <div className="lock-icon"><Lock size={48} /></div>
         <h2>Budget Tracker</h2>
         <p>Enter your access key to continue</p>
         <form onSubmit={handleSubmit} className="lock-form">
@@ -519,7 +587,9 @@ function LockScreen({ onUnlock }) {
             className="lock-input"
           />
           {error && <span className="lock-error">{error}</span>}
-          <button type="submit" className="btn btn-pri lock-btn">🔓 Unlock</button>
+          <button type="submit" className="btn btn-pri lock-btn" disabled={isLoading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+            {isLoading ? 'Verifying...' : <><Unlock size={18} /> Unlock</>}
+          </button>
         </form>
         <p className="lock-hint">This app is protected. Unauthorized access is prohibited.</p>
       </div>
@@ -694,18 +764,18 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   return (
     <div className="dashboard">
       <div className="cards-grid">
-        <SumCard icon="💵" label="Total Income" value={fmt(totInc)} cls="inc" />
-        <SumCard icon="💸" label="Budget Expenses" value={fmt(totExp)} cls="exp"
+        <SumCard icon={<Banknote size={24} />} label="Total Income" value={fmt(totInc)} cls="inc" />
+        <SumCard icon={<Coins size={24} />} label="Budget Expenses" value={fmt(totExp)} cls="exp"
           sub={expPct > 0 ? `${expPct}% of income` : ''}
           subColor="#94A3B8" />
-        <SumCard icon={savings >= 0 ? '📈' : '📉'} label="Net Savings" value={fmt(savings)} cls="sav"
+        <SumCard icon={savings >= 0 ? <TrendingUp size={24} /> : <TrendingDown size={24} />} label="Net Savings" value={fmt(savings)} cls="sav"
           valueColor={savings >= 0 ? '#10B981' : '#EF4444'}
           sub={savPct !== 0 ? `${savPct}% of income` : ''}
           subColor="#94A3B8" />
-        <SumCard icon="⚡" label="Utility Total" value={fmt(split?.total || 0)} cls="utl" />
+        <SumCard icon={<Zap size={24} />} label="Utility Total" value={fmt(split?.total || 0)} cls="utl" />
       </div>
 
-      <p style={{ color: '#64748B', fontSize: '0.85rem', marginBottom: '12px' }}>💡 Tip: Drag and drop the charts below to rearrange your dashboard.</p>
+      <p style={{ color: '#64748B', fontSize: '0.85rem', marginBottom: '12px', display:'flex', alignItems:'center', gap:'6px' }}><Lightbulb size={14} /> Tip: Drag and drop the charts below to rearrange your dashboard.</p>
 
       {/* Dynamic Draggable Charts Grid */}
       <div className="draggable-charts-grid">
@@ -957,7 +1027,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
     <div className="page-budget">
       {/* Add / Edit form */}
       <div className="card">
-        <h3>{editId ? '✏️ Edit Expense' : '➕ Add Expense'}</h3>
+        <h3>{editId ? <><Edit size={20} className="mr-2 inline" /> Edit Expense</> : <><Plus size={20} className="mr-2 inline" /> Add Expense</>}</h3>
         <form onSubmit={submit} className="row-form">
           <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
           <input type="text" placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required />
@@ -973,21 +1043,21 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
 
       {/* Category chips */}
       <div className="card">
-        <h3>📋 Category Breakdown</h3>
+        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ClipboardList size={20} /> Category Breakdown</h3>
         <div className="chip-grid">
           {CATEGORIES.map(c => (
             <div key={c.name} className="chip" style={{ borderLeft: `4px solid ${c.color}` }}>
               <span>{c.icon} {c.name}</span><strong>{fmt(catTotals[c.name] || 0)}</strong>
             </div>
           ))}
-          {tenantP > 0 && <div className="chip tenant-chip"><span>🏠 Tenant Overage</span><strong>{fmt(tenantP)}</strong></div>}
+          {tenantP > 0 && <div className="chip tenant-chip"><span><Home size={16} style={{ display:'inline', verticalAlign:'sub'}} /> Tenant Overage</span><strong>{fmt(tenantP)}</strong></div>}
         </div>
       </div>
 
       {/* Expense table */}
       <div className="card">
         <div className="card-head">
-          <h3>💳 Expenses ({filtered.length})</h3>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CreditCard size={20} /> Expenses ({filtered.length})</h3>
           <select value={filter} onChange={e => setFilter(e.target.value)} className="filter-sel">
             <option value="All">All Categories</option>
             {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
@@ -999,8 +1069,8 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
             <tbody>
               {tenantP > 0 && filter === 'All' && (
                 <tr className="tenant-expense-row">
-                  <td>—</td><td><strong>🏠 Tenant Utility Overage</strong></td>
-                  <td><span className="badge tenant-badge">🏠 Tenant</span></td>
+                  <td>—</td><td><strong><Home size={16} style={{display:'inline', verticalAlign:'sub'}}/> Tenant Utility Overage</strong></td>
+                  <td><span className="badge tenant-badge"><Home size={14} style={{display:'inline', verticalAlign:'sub'}}/> Tenant</span></td>
                   <td className="amt tenant-amt">{fmt(tenantP)}</td>
                   <td><span className="auto-tag">Auto</span></td>
                 </tr>
@@ -1015,8 +1085,8 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
                       <td><span className="badge" style={{ background: cat?.color + '18', color: cat?.color, border: `1px solid ${cat?.color}44` }}>{cat?.icon} {exp.category}</span></td>
                       <td className="amt">{fmt(exp.cost)}</td>
                       <td className="actions">
-                        <button onClick={() => startEdit(exp)} title="Edit">✏️</button>
-                        <button onClick={() => delExp(exp.id)} title="Delete">🗑️</button>
+                        <button onClick={() => startEdit(exp)} title="Edit" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Edit size={16} /></button>
+                        <button onClick={() => delExp(exp.id)} title="Delete" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={16} /></button>
                       </td>
                     </tr>
                   );
@@ -1049,10 +1119,10 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
   return (
     <div className="page-util">
       <div className="card">
-        <h3>⚡ Utility Costs — {sheetKey}</h3>
+        <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Zap size={20} /> Utility Costs — {sheetKey}</h3>
         <form onSubmit={handleSave} className="util-form">
           <div className="uf-grid">
-            {[['🚿 Water (Full House)', 'water'], ['💡 Electricity (Basement)', 'elecBase'], ['💡 Electricity (Main Unit)', 'elecMain'], ['🔥 Gas (Full House)', 'gas'], ['🌐 Internet', 'internet']].map(([lbl, k]) => (
+            {[[<><Droplet size={16} className="inline mr-1" /> Water (Full House)</>, 'water'], [<><Lightbulb size={16} className="inline mr-1" /> Electricity (Basement)</>, 'elecBase'], [<><Lightbulb size={16} className="inline mr-1" /> Electricity (Main Unit)</>, 'elecMain'], [<><Flame size={16} className="inline mr-1" /> Gas (Full House)</>, 'gas'], [<><Globe size={16} className="inline mr-1" /> Internet</>, 'internet']].map(([lbl, k]) => (
               <div key={k} className="fg">
                 <label>{lbl}</label>
                 <input type="number" step="0.01" min="0" placeholder="0.00" value={form[k]} onChange={e => setForm({ ...form, [k]: e.target.value })} />
@@ -1060,7 +1130,7 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
             ))}
           </div>
           <div className="uf-actions">
-            <button type="submit" className="btn btn-pri">💾 Save Utilities</button>
+            <button type="submit" className="btn btn-pri" style={{ display:'flex', alignItems:'center', gap:'8px' }}><Save size={18} /> Save Utilities</button>
             <span className="tot-badge">Total: {fmt(sp?.total || 0)}</span>
           </div>
         </form>
@@ -1069,13 +1139,13 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
         <>
           <div className="card">
             <div className="tab-bar">
-              <button className={`tab ${tab === 'tenant' ? 'on' : ''}`} onClick={() => setTab('tenant')}>🏠 Tenant</button>
-              <button className={`tab ${tab === 'landlord' ? 'on' : ''}`} onClick={() => setTab('landlord')}>🏢 Landlord</button>
+              <button className={`tab ${tab === 'tenant' ? 'on' : ''}`} onClick={() => setTab('tenant')} style={{ display:'flex', alignItems:'center', gap:'6px' }}><Home size={16} /> Tenant</button>
+              <button className={`tab ${tab === 'landlord' ? 'on' : ''}`} onClick={() => setTab('landlord')} style={{ display:'flex', alignItems:'center', gap:'6px' }}><Building2 size={16} /> Landlord</button>
             </div>
 
             {tab === 'tenant' && (
               <div className="split-view">
-                <h3>🏠 Tenant's Breakdown</h3>
+                <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Home size={20} /> Tenant's Breakdown</h3>
                 <div className="split-rows">
                   <Row l="Water (40%)" v={sp.tenant.water} />
                   <Row l="Electricity – Basement (100%)" v={sp.tenant.elec} />
@@ -1105,14 +1175,14 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
 
             {tab === 'landlord' && (
               <div className="split-view">
-                <h3>🏢 Landlord's Breakdown</h3>
+                <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Building2 size={20} /> Landlord's Breakdown</h3>
                 <p className="landlord-note">Landlord pays the <strong>full bill</strong>. Tenant reimburses overage only.</p>
                 <div className="split-rows">
-                  <Row l="🚿 Water" v={+(form.water || 0)} />
-                  <Row l="💡 Elec – Basement" v={+(form.elecBase || 0)} />
-                  <Row l="💡 Elec – Main" v={+(form.elecMain || 0)} />
-                  <Row l="🔥 Gas" v={+(form.gas || 0)} />
-                  <Row l="🌐 Internet" v={+(form.internet || 0)} />
+                  <Row l={<><Droplet size={14} className="inline mr-1" /> Water</>} v={+(form.water || 0)} />
+                  <Row l={<><Lightbulb size={14} className="inline mr-1" /> Elec – Basement</>} v={+(form.elecBase || 0)} />
+                  <Row l={<><Lightbulb size={14} className="inline mr-1" /> Elec – Main</>} v={+(form.elecMain || 0)} />
+                  <Row l={<><Flame size={14} className="inline mr-1" /> Gas</>} v={+(form.gas || 0)} />
+                  <Row l={<><Globe size={14} className="inline mr-1" /> Internet</>} v={+(form.internet || 0)} />
                   <Row l="Total Bill (Landlord Pays)" v={sp.landlord.totalBill} cls="total" />
                 </div>
                 <div className="mini-cards">
@@ -1155,7 +1225,7 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
   return (
     <div className="page-income">
       <div className="card">
-        <h3>➕ Add Income</h3>
+        <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Plus size={20} /> Add Income</h3>
         <form onSubmit={submit} className="row-form">
           <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
           <input type="text" placeholder="Description (e.g. Salary)" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required />
@@ -1164,7 +1234,7 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
         </form>
       </div>
       <div className="card">
-        <h3>💵 Income — Total: {fmt(totInc)}</h3>
+        <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Banknote size={20} /> Income — Total: {fmt(totInc)}</h3>
         <div className="tbl-wrap">
           <table>
             <thead><tr><th>Date</th><th>Description</th><th>Amount</th><th>Actions</th></tr></thead>
@@ -1174,7 +1244,7 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
                 : [...incomes].sort((a, b) => b.date.localeCompare(a.date)).map(inc => (
                   <tr key={inc.id}><td>{inc.date}</td><td>{inc.description}</td>
                     <td className="amt inc-amt">{fmt(inc.amount)}</td>
-                    <td className="actions"><button onClick={() => delInc(inc.id)}>🗑️</button></td></tr>
+                    <td className="actions"><button onClick={() => delInc(inc.id)} style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={16} /></button></td></tr>
                 ))}
             </tbody>
           </table>
@@ -1191,7 +1261,7 @@ function IncomeManager({ incomes, addInc, delInc, year, monthIdx, totInc }) {
 function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
   const reqNotif = () => {
     if ('Notification' in window) {
-      Notification.requestPermission().then(p => alert(p === 'granted' ? '✅ Enabled!' : '❌ Denied'));
+      Notification.requestPermission().then(p => alert(p === 'granted' ? 'Enabled!' : 'Denied'));
     } else alert('Not supported.');
   };
 
@@ -1203,11 +1273,11 @@ function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
     <div className="page-settings">
       {/* File Status */}
       <div className="card">
-        <h3>🗄️ Storage Status</h3>
+        <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Database size={20} /> Storage Status</h3>
         <div className="file-status-grid">
           
           <div className={`fs-card ${db && cloudStatus !== 'error' && cloudStatus !== 'disconnected' ? 'connected' : 'disconnected'}`}>
-            <span className="fs-icon">☁️</span>
+            <span className="fs-icon"><Cloud size={24} /></span>
             <div>
               <strong>Firebase Cloud Database</strong>
               <p>{db ? `Status: ${cloudStatus.toUpperCase()}` : 'Keys missing in src/firebase.js'}</p>
@@ -1216,7 +1286,7 @@ function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
 
         </div>
         <div className="set-actions" style={{ marginTop: 16 }}>
-          <button className="btn btn-sec" onClick={handleDownload}>📥 Export Data to Excel</button>
+          <button className="btn btn-sec" onClick={handleDownload} style={{ display:'flex', alignItems:'center', gap:'8px' }}><Download size={18} /> Export Data to Excel</button>
         </div>
       </div>
     </div>

@@ -1,5 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { getFunctions } from 'firebase/functions';
 
 // -------------------------------------------------------------
 // 🔥 FIREBASE CONFIGURATION
@@ -17,14 +19,16 @@ const firebaseConfig = {
   appId: "1:421318410787:web:75669a06b4ef87b1c8a796"
 };
 
-let app, db = null;
+let app, db, auth, functions = null;
 
 try {
   // We now have real keys, so initialize immediately
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
+  auth = getAuth(app);
+  functions = getFunctions(app);
 } catch (error) {
   console.error("Firebase Initialization Error:", error);
 }
 
-export { db };
+export { db, auth, functions };
