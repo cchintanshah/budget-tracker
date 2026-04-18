@@ -12,7 +12,7 @@ import {
   ShoppingCart, Utensils, Car, Smartphone, Bus, Lightbulb, Package, Home, Send,
   LayoutDashboard, Wallet, Zap, ArrowDownToLine, Settings as SettingsIcon, Banknote, Coins, TrendingUp, TrendingDown,
   Lock, Unlock, Edit, Plus, ClipboardList, CreditCard, Droplet, Flame, Globe, Building2, Save, Trash2,
-  Check, X, Database, Cloud, Download
+  Check, X, Database, Cloud, Download, Plane
 } from 'lucide-react';
 import './App.css';
 
@@ -30,6 +30,7 @@ const CATEGORIES = [
   { name: 'Miscellaneous', color: '#EC4899', icon: <Package size={18} /> },
   { name: 'Mortgage', color: '#6366F1', icon: <Home size={18} /> },
   { name: 'Remittance to India', color: '#14B8A6', icon: <Send size={18} /> },
+  { name: 'Vacation', color: '#0EA5E9', icon: <Plane size={18} /> },
 ];
 
 const TENANT_CAP = 200;
