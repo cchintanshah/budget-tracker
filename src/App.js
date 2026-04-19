@@ -12,7 +12,7 @@ import {
   ShoppingCart, Utensils, Car, Smartphone, Bus, Lightbulb, Package, Home, Send,
   LayoutDashboard, Wallet, Zap, ArrowDownToLine, Settings as SettingsIcon, Banknote, Coins, TrendingUp, TrendingDown,
   Lock, Unlock, Edit, Plus, ClipboardList, CreditCard, Droplet, Flame, Globe, Building2, Save, Trash2,
-  Check, X, Database, Cloud, Download, Plane
+  Check, X, Database, Cloud, Download, Plane, Tag, PlusCircle
 } from 'lucide-react';
 import './App.css';
 
@@ -20,18 +20,45 @@ import './App.css';
    CONSTANTS
    ═══════════════════════════════════════════ */
 
-const CATEGORIES = [
-  { name: 'Grocery', color: '#10B981', icon: <ShoppingCart size={18} /> },
-  { name: 'Eat Outside', color: '#F59E0B', icon: <Utensils size={18} /> },
-  { name: 'Car', color: '#EF4444', icon: <Car size={18} /> },
-  { name: 'Mobile', color: '#8B5CF6', icon: <Smartphone size={18} /> },
-  { name: 'Presto - Commute', color: '#06B6D4', icon: <Bus size={18} /> },
-  { name: 'Utility', color: '#F97316', icon: <Lightbulb size={18} /> },
-  { name: 'Miscellaneous', color: '#EC4899', icon: <Package size={18} /> },
-  { name: 'Mortgage', color: '#6366F1', icon: <Home size={18} /> },
-  { name: 'Remittance to India', color: '#14B8A6', icon: <Send size={18} /> },
-  { name: 'Vacation', color: '#0EA5E9', icon: <Plane size={18} /> },
+const DEFAULT_CATEGORIES = [
+  { name: 'Grocery', color: '#10B981', builtIn: true },
+  { name: 'Eat Outside', color: '#F59E0B', builtIn: true },
+  { name: 'Car', color: '#EF4444', builtIn: true },
+  { name: 'Mobile', color: '#8B5CF6', builtIn: true },
+  { name: 'Presto - Commute', color: '#06B6D4', builtIn: true },
+  { name: 'Utility', color: '#F97316', builtIn: true },
+  { name: 'Miscellaneous', color: '#EC4899', builtIn: true },
+  { name: 'Mortgage', color: '#6366F1', builtIn: true },
+  { name: 'Remittance to India', color: '#14B8A6', builtIn: true },
+  { name: 'Vacation', color: '#0EA5E9', builtIn: true },
 ];
+
+const ICON_MAP = {
+  'Grocery': <ShoppingCart size={18} />,
+  'Eat Outside': <Utensils size={18} />,
+  'Car': <Car size={18} />,
+  'Mobile': <Smartphone size={18} />,
+  'Presto - Commute': <Bus size={18} />,
+  'Utility': <Lightbulb size={18} />,
+  'Miscellaneous': <Package size={18} />,
+  'Mortgage': <Home size={18} />,
+  'Remittance to India': <Send size={18} />,
+  'Vacation': <Plane size={18} />,
+};
+
+const CUSTOM_CAT_COLORS = [
+  '#F43F5E', '#D946EF', '#8B5CF6', '#6366F1', '#3B82F6', '#0EA5E9',
+  '#06B6D4', '#14B8A6', '#10B981', '#22C55E', '#84CC16', '#EAB308',
+  '#F59E0B', '#F97316', '#EF4444', '#78716C',
+];
+
+const UTILITY_EXPENSE_TAG = '__auto_utility__';
+
+function getCategories() {
+  const custom = load('bpro_custom_categories', []);
+  const all = [...DEFAULT_CATEGORIES, ...custom];
+  return all.map(c => ({ ...c, icon: ICON_MAP[c.name] || <Tag size={18} /> }));
+}
 
 const TENANT_CAP = 200;
 const MON_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -398,7 +425,44 @@ export default function App() {
   const updExp = (id, u) => updateMonth(d => ({ ...d, expenses: d.expenses.map(e => e.id === id ? { ...e, ...u } : e) }));
   const addInc = (i) => updateMonth(d => ({ ...d, incomes: [...d.incomes, { ...i, id: uid() }] }));
   const delInc = (id) => updateMonth(d => ({ ...d, incomes: d.incomes.filter(i => i.id !== id) }));
-  const saveUtil = (u) => updateMonth(d => ({ ...d, utilities: u }));
+
+  /* Save utilities AND auto-sync a Utility expense into the budget */
+  const saveUtil = (u) => {
+    const sp = calcSplit(u);
+    const landlordNet = sp ? sp.landlord.netCost : 0;
+    const utilDate = `${year}-${String(monthIdx + 1).padStart(2, '0')}-12`;
+    const allFilled = u.water && u.elecBase && u.elecMain && u.gas && u.internet;
+
+    updateMonth(d => {
+      const updatedData = { ...d, utilities: u };
+      const existingIdx = d.expenses.findIndex(e => e._utilTag === UTILITY_EXPENSE_TAG);
+
+      if (allFilled && landlordNet > 0) {
+        const utilExpense = {
+          date: utilDate,
+          description: 'Utility — Landlord Net Cost (Auto)',
+          cost: String(landlordNet.toFixed(2)),
+          category: 'Utility',
+          _utilTag: UTILITY_EXPENSE_TAG,
+        };
+
+        if (existingIdx >= 0) {
+          // Update existing auto-entry
+          const newExpenses = [...d.expenses];
+          newExpenses[existingIdx] = { ...newExpenses[existingIdx], ...utilExpense };
+          updatedData.expenses = newExpenses;
+        } else {
+          // Add new auto-entry
+          updatedData.expenses = [...d.expenses, { ...utilExpense, id: uid() }];
+        }
+      } else if (existingIdx >= 0) {
+        // Remove auto-entry if utilities are incomplete or zero
+        updatedData.expenses = d.expenses.filter(e => e._utilTag !== UTILITY_EXPENSE_TAG);
+      }
+
+      return updatedData;
+    });
+  };
 
 
 
@@ -503,7 +567,8 @@ export default function App() {
               year={year} monthIdx={monthIdx} totExp={totExp} tenantP={tenantP} />
           )}
           {page === 'utilities' && (
-            <UtilityManager util={monthData.utilities} save={saveUtil} sheetKey={key} />
+            <UtilityManager util={monthData.utilities} save={saveUtil} sheetKey={key}
+              year={year} monthIdx={monthIdx} />
           )}
           {page === 'income' && (
             <IncomeManager incomes={monthData.incomes} addInc={addInc} delInc={delInc}
@@ -633,9 +698,10 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   const localTenantP = localSplit?.tenant.actual || 0;
 
   const localCatData = useMemo(() => {
+    const cats = getCategories();
     const m = {};
     localData.expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + (+e.cost || 0); });
-    const r = CATEGORIES.map(c => ({ name: c.name, value: m[c.name] || 0, color: c.color })).filter(c => c.value > 0);
+    const r = cats.map(c => ({ name: c.name, value: m[c.name] || 0, color: c.color })).filter(c => c.value > 0);
     if (localTenantP > 0) r.push({ name: 'Tenant Overage', value: localTenantP, color: '#DC2626' });
     return r;
   }, [localData.expenses, localTenantP]);
@@ -659,9 +725,10 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   };
 
   const catData = useMemo(() => {
+    const cats = getCategories();
     const m = {};
     monthData.expenses.forEach(e => { m[e.category] = (m[e.category] || 0) + (+e.cost || 0); });
-    const r = CATEGORIES.map(c => ({ name: c.name, value: m[c.name] || 0, color: c.color })).filter(c => c.value > 0);
+    const r = cats.map(c => ({ name: c.name, value: m[c.name] || 0, color: c.color })).filter(c => c.value > 0);
     if (tenantP > 0) r.push({ name: 'Tenant Overage', value: tenantP, color: '#DC2626' });
     return r;
   }, [monthData.expenses, tenantP]);
@@ -718,6 +785,7 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   }, [allMonthKeys, allData]);
 
   const yearlyCatTrend = useMemo(() => {
+    const cats = getCategories();
     // Filter months that belong to the current year
     const yearKeys = allMonthKeys.filter(k => k.startsWith(String(year)));
     const catTotals = {};
@@ -732,7 +800,7 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
     // (or divide by 12 for a strict yearly average, let's use active months for better representation early in year)
     const numMonths = yearKeys.length || 1;
     
-    return CATEGORIES.map(c => ({
+    return cats.map(c => ({
       name: c.name,
       average: catTotals[c.name] ? Math.round(catTotals[c.name] / numMonths) : 0,
       color: c.color
@@ -740,12 +808,13 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
   }, [allMonthKeys, allData, year]);
 
   const catMonthData = useMemo(() => {
+    const cats = getCategories();
     // Build a bar per category showing amount spent across the last 6 months
     // Each entry: { month, [catName]: amount, ... }
     return allMonthKeys.slice(-6).map(k => {
       const d = allData[k] || { expenses: [] };
       const entry = { month: k };
-      CATEGORIES.forEach(c => {
+      cats.forEach(c => {
         entry[c.name] = d.expenses
           .filter(e => e.category === c.name)
           .reduce((s, e) => s + (+e.cost || 0), 0);
@@ -804,7 +873,7 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
             content = topExpenses.length ? (
               <div className="top-exp-list">
                 {topExpenses.map(e => {
-                  const cat = CATEGORIES.find(c => c.name === e.category);
+                  const cat = getCategories().find(c => c.name === e.category);
                   return (
                     <div key={e.id} className="top-exp-item">
                       <div className="te-left">
@@ -876,7 +945,7 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
 
           else if (chartId === 'cat-month') {
             title = 'Category Expense by Month';
-            const hasData = catMonthData.some(d => CATEGORIES.some(c => d[c.name] > 0));
+            const hasData = catMonthData.some(d => getCategories().some(c => d[c.name] > 0));
             content = hasData ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={catMonthData} barCategoryGap="20%" barGap={2}>
@@ -890,8 +959,8 @@ function Dashboard({ allData, monthData, split, tenantP, totExp, totInc, year, m
                     cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                   />
                   <Legend wrapperStyle={{ fontSize: 10, color: '#94A3B8' }} />
-                  {CATEGORIES.map(c => (
-                    <Bar key={c.name} dataKey={c.name} stackId="a" fill={c.color} radius={c.name === CATEGORIES[CATEGORIES.length - 1].name ? [4, 4, 0, 0] : [0,0,0,0]} />
+                  {getCategories().map((c, i, arr) => (
+                    <Bar key={c.name} dataKey={c.name} stackId="a" fill={c.color} radius={i === arr.length - 1 ? [4, 4, 0, 0] : [0,0,0,0]} />
                   ))}
                 </BarChart>
               </ResponsiveContainer>
@@ -999,7 +1068,8 @@ function Empty() {
    ═══════════════════════════════════════════ */
 
 function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totExp, tenantP }) {
-  const blank = { date: dateDefault(year, monthIdx), description: '', cost: '', category: CATEGORIES[0].name };
+  const categories = getCategories();
+  const blank = { date: dateDefault(year, monthIdx), description: '', cost: '', category: categories[0].name };
   const [form, setForm] = useState(blank);
   const [editId, setEditId] = useState(null);
   const [filter, setFilter] = useState('All');
@@ -1034,7 +1104,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
           <input type="text" placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required />
           <input type="number" step="0.01" min="0" placeholder="Amount ($)" value={form.cost} onChange={e => setForm({ ...form, cost: e.target.value })} required />
           <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-            {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
+            {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
           <button type="submit" className="btn btn-pri">{editId ? 'Update' : 'Add'}</button>
           {editId && <button type="button" className="btn btn-sec" onClick={cancelEdit}>Cancel</button>}
@@ -1046,7 +1116,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
       <div className="card">
         <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><ClipboardList size={20} /> Category Breakdown</h3>
         <div className="chip-grid">
-          {CATEGORIES.map(c => (
+          {categories.map(c => (
             <div key={c.name} className="chip" style={{ borderLeft: `4px solid ${c.color}` }}>
               <span>{c.icon} {c.name}</span><strong>{fmt(catTotals[c.name] || 0)}</strong>
             </div>
@@ -1061,7 +1131,7 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><CreditCard size={20} /> Expenses ({filtered.length})</h3>
           <select value={filter} onChange={e => setFilter(e.target.value)} className="filter-sel">
             <option value="All">All Categories</option>
-            {CATEGORIES.map(c => <option key={c.name} value={c.name}>{c.icon} {c.name}</option>)}
+            {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
         </div>
         <div className="tbl-wrap">
@@ -1079,15 +1149,20 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
               {filtered.length === 0 && tenantP === 0
                 ? <tr><td colSpan="5" className="empty-row">No expenses</td></tr>
                 : [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(exp => {
-                  const cat = CATEGORIES.find(c => c.name === exp.category);
+                  const cat = categories.find(c => c.name === exp.category);
                   return (
                     <tr key={exp.id}>
                       <td>{exp.date}</td><td>{exp.description}</td>
                       <td><span className="badge" style={{ background: cat?.color + '18', color: cat?.color, border: `1px solid ${cat?.color}44` }}>{cat?.icon} {exp.category}</span></td>
                       <td className="amt">{fmt(exp.cost)}</td>
                       <td className="actions">
-                        <button onClick={() => startEdit(exp)} title="Edit" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Edit size={16} /></button>
-                        <button onClick={() => delExp(exp.id)} title="Delete" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={16} /></button>
+                        {exp._utilTag === UTILITY_EXPENSE_TAG
+                          ? <span className="auto-tag">Auto</span>
+                          : <>
+                            <button onClick={() => startEdit(exp)} title="Edit" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Edit size={16} /></button>
+                            <button onClick={() => delExp(exp.id)} title="Delete" style={{ display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={16} /></button>
+                          </>
+                        }
                       </td>
                     </tr>
                   );
@@ -1107,14 +1182,20 @@ function BudgetTracker({ expenses, addExp, delExp, updExp, year, monthIdx, totEx
    UTILITY MANAGER
    ═══════════════════════════════════════════ */
 
-function UtilityManager({ util, save: saveUtil, sheetKey }) {
+function UtilityManager({ util, save: saveUtil, sheetKey, year, monthIdx }) {
   const blank = { water: '', elecBase: '', elecMain: '', gas: '', internet: '' };
   const [form, setForm] = useState(blank);
   const [tab, setTab] = useState('tenant');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => { setForm(util && Object.keys(util).length ? util : blank); }, [util, sheetKey]); // eslint-disable-line
 
-  const handleSave = e => { e.preventDefault(); saveUtil(form); };
+  const handleSave = e => {
+    e.preventDefault();
+    saveUtil(form);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
   const sp = calcSplit(form);
 
   return (
@@ -1133,6 +1214,11 @@ function UtilityManager({ util, save: saveUtil, sheetKey }) {
           <div className="uf-actions">
             <button type="submit" className="btn btn-pri" style={{ display:'flex', alignItems:'center', gap:'8px' }}><Save size={18} /> Save Utilities</button>
             <span className="tot-badge">Total: {fmt(sp?.total || 0)}</span>
+            {saved && (
+              <span className="util-saved-badge" style={{ display:'flex', alignItems:'center', gap:'6px', color:'#10B981', fontSize:'0.85rem', fontWeight:600, animation:'fadeIn 0.3s ease' }}>
+                <Check size={16} /> Saved &amp; synced to Budget
+              </span>
+            )}
           </div>
         </form>
       </div>
@@ -1270,6 +1356,32 @@ function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
   const totalExp = Object.values(allData).reduce((s, d) => s + (d.expenses?.length || 0), 0);
   const totalInc = Object.values(allData).reduce((s, d) => s + (d.incomes?.length || 0), 0);
 
+  /* ── Category Manager ── */
+  const [customCats, setCustomCats] = useState(() => load('bpro_custom_categories', []));
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatColor, setNewCatColor] = useState(CUSTOM_CAT_COLORS[0]);
+  const [catError, setCatError] = useState('');
+
+  const allCatNames = [...DEFAULT_CATEGORIES, ...customCats].map(c => c.name.toLowerCase());
+
+  const addCategory = () => {
+    const name = newCatName.trim();
+    if (!name) { setCatError('Category name is required.'); return; }
+    if (allCatNames.includes(name.toLowerCase())) { setCatError('Category already exists.'); return; }
+    const updated = [...customCats, { name, color: newCatColor, builtIn: false }];
+    setCustomCats(updated);
+    save('bpro_custom_categories', updated);
+    setNewCatName('');
+    setNewCatColor(CUSTOM_CAT_COLORS[(updated.length) % CUSTOM_CAT_COLORS.length]);
+    setCatError('');
+  };
+
+  const removeCategory = (name) => {
+    const updated = customCats.filter(c => c.name !== name);
+    setCustomCats(updated);
+    save('bpro_custom_categories', updated);
+  };
+
   return (
     <div className="page-settings">
       {/* File Status */}
@@ -1288,6 +1400,73 @@ function Settings({ allData, setAllData, cloudStatus, db, handleDownload }) {
         </div>
         <div className="set-actions" style={{ marginTop: 16 }}>
           <button className="btn btn-sec" onClick={handleDownload} style={{ display:'flex', alignItems:'center', gap:'8px' }}><Download size={18} /> Export Data to Excel</button>
+        </div>
+      </div>
+
+      {/* Category Manager */}
+      <div className="card">
+        <h3 style={{ display:'flex', alignItems:'center', gap:'8px' }}><Tag size={20} /> Manage Categories</h3>
+        <p style={{ color:'#94A3B8', fontSize:'0.85rem', marginBottom:'16px' }}>Add custom expense categories. Built-in categories cannot be removed.</p>
+
+        {/* Add new category form */}
+        <div className="cat-add-form">
+          <input
+            type="text"
+            placeholder="New category name"
+            value={newCatName}
+            onChange={e => { setNewCatName(e.target.value); setCatError(''); }}
+            className="cat-input"
+            maxLength={30}
+          />
+          <div className="color-picker-row">
+            {CUSTOM_CAT_COLORS.map(c => (
+              <button
+                key={c}
+                className={`color-swatch ${newCatColor === c ? 'selected' : ''}`}
+                style={{ background: c }}
+                onClick={() => setNewCatColor(c)}
+                title={c}
+                type="button"
+              />
+            ))}
+          </div>
+          <button className="btn btn-pri" onClick={addCategory} style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+            <PlusCircle size={16} /> Add Category
+          </button>
+          {catError && <span className="cat-error">{catError}</span>}
+        </div>
+
+        {/* Category list */}
+        <div className="cat-list">
+          <h4 style={{ color:'#CBD5E1', marginBottom:'12px', fontSize:'0.9rem' }}>Built-in Categories</h4>
+          <div className="cat-chips">
+            {DEFAULT_CATEGORIES.map(c => (
+              <div key={c.name} className="cat-chip" style={{ borderLeft: `4px solid ${c.color}` }}>
+                <span style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                  {ICON_MAP[c.name] || <Tag size={14} />} {c.name}
+                </span>
+                <span className="cat-builtin-tag">Built-in</span>
+              </div>
+            ))}
+          </div>
+
+          {customCats.length > 0 && (
+            <>
+              <h4 style={{ color:'#CBD5E1', margin:'16px 0 12px', fontSize:'0.9rem' }}>Custom Categories</h4>
+              <div className="cat-chips">
+                {customCats.map(c => (
+                  <div key={c.name} className="cat-chip custom" style={{ borderLeft: `4px solid ${c.color}` }}>
+                    <span style={{ display:'flex', alignItems:'center', gap:'6px' }}>
+                      <Tag size={14} style={{ color: c.color }} /> {c.name}
+                    </span>
+                    <button className="cat-remove-btn" onClick={() => removeCategory(c.name)} title="Remove category">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
