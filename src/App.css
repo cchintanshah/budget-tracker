@@ -895,7 +895,16 @@ tbody tr:hover { background: var(--surface-container-high); }
 .recharts-tooltip-item  { color: var(--on-surface-variant) !important; }
 
 /* ═══════════════════════════════════════════════════════
-   RESPONSIVE
+   BOTTOM TAB BAR — Mobile Navigation (Stitch Design)
+   ═══════════════════════════════════════════════════════ */
+.bottom-tab-bar {
+  display: none; /* Hidden on desktop */
+}
+
+.desktop-only { /* Visible on desktop, hidden on mobile */ }
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE — Stitch Obsidian Finance Mobile Design
    ═══════════════════════════════════════════════════════ */
 @media (max-width: 1280px) { .cards-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 1024px) {
@@ -904,30 +913,325 @@ tbody tr:hover { background: var(--surface-container-high); }
   .tenant-overage-banner { flex-direction: column; gap: 14px; }
   .tob-left { flex-direction: column; text-align: center; }
 }
+
+/* ─── Mobile breakpoint: Phone app experience ─── */
 @media (max-width: 768px) {
-  .sidebar   { width: 0; overflow: hidden; }
-  .sidebar.open { width: 270px; box-shadow: 8px 0 40px rgba(0,0,0,0.6); }
+  /* Hide sidebar completely on mobile */
+  .sidebar   { display: none !important; }
+  .sidebar.open { display: none !important; }
+  .overlay { display: none !important; }
   .main      { margin-left: 0 !important; }
-  .mob-menu  { display: block; }
-  .topbar    { padding: 0 16px; flex-wrap: wrap; height: auto; min-height: 68px; gap: 8px; padding-top: 12px; padding-bottom: 12px; }
-  .tb-left h1 { font-size: 15px; }
-  .content   { padding: 18px; }
-  .cards-grid { grid-template-columns: 1fr 1fr; }
-  .row-form  { flex-direction: column; }
-  .row-form input, .row-form select { min-width: auto; }
-  .chip-grid { grid-template-columns: 1fr; }
-  .util-form .uf-grid { grid-template-columns: 1fr; }
-  .rules-grid { grid-template-columns: 1fr; }
-  .file-banner { flex-direction: column; text-align: center; }
-  .fb-actions  { margin-left: 0; }
+  .mob-menu  { display: none !important; } /* No hamburger — bottom tabs instead */
+  .desktop-only { display: none !important; }
+
+  /* ── BOTTOM TAB BAR ── */
+  .bottom-tab-bar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: rgba(18, 18, 29, 0.85);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    border-top: 1px solid rgba(70, 69, 84, 0.3);
+    padding: 6px 0;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    justify-content: space-around;
+    align-items: center;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.4);
+  }
+  .btab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px 0;
+    min-width: 56px;
+    min-height: 48px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--outline);
+    transition: all 0.25s ease;
+    font-family: 'Inter', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    position: relative;
+  }
+  .btab-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 28px;
+    border-radius: 14px;
+    transition: all 0.25s ease;
+  }
+  .btab.active .btab-icon {
+    background: rgba(128,131,255,0.18);
+    color: var(--primary);
+    box-shadow: 0 0 12px rgba(128,131,255,0.15);
+  }
+  .btab.active {
+    color: var(--primary);
+  }
+  .btab-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    line-height: 1;
+  }
+  .btab:active {
+    transform: scale(0.92);
+  }
+
+  /* ── TOPBAR — Compact mobile header ── */
+  .topbar {
+    padding: 0 16px;
+    padding-top: env(safe-area-inset-top, 0px);
+    height: auto;
+    min-height: 56px;
+    gap: 0;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .tb-left {
+    padding: 12px 0 4px;
+  }
+  .tb-left h1 {
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .tb-right {
+    padding-bottom: 10px;
+    gap: 8px;
+  }
+  .ym-sel {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 13px;
+    min-width: 0;
+  }
+  .month-sel-dd {
+    min-width: 0;
+    flex: 1.5;
+  }
+
+  /* ── CONTENT — Bottom padding for tab bar ── */
+  .content {
+    padding: 16px;
+    padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ── CARDS — Full-width mobile cards ── */
+  .card {
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card h3 { font-size: 16px; margin-bottom: 16px; }
+
+  /* ── SUMMARY CARDS — 2x2 grid ── */
+  .cards-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .sum-card {
+    padding: 16px;
+    border-radius: var(--radius);
+    gap: 10px;
+  }
+  .sc-icon { width: 38px; height: 38px; }
+  .sc-value { font-size: 18px; }
+  .sc-label { font-size: 10px; }
+
+  /* ── CHARTS — Single column, full-width ── */
+  .draggable-charts-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .chart-card {
+    padding: 18px;
+    border-radius: var(--radius);
+  }
+  .chart-card h3 { font-size: 12px; margin-bottom: 16px; }
+  .drag-handle { display: none; }
+  .draggable-card { cursor: default; }
+  .draggable-card h3 { padding-right: 0; }
+
+  /* ── FORMS — Stacked full-width inputs ── */
+  .row-form {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .row-form input,
+  .row-form select {
+    min-width: auto;
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 16px; /* Prevents iOS zoom */
+    border-radius: var(--radius);
+  }
+  .row-form .btn {
+    width: 100%;
+    padding: 14px;
+    font-size: 15px;
+    justify-content: center;
+    border-radius: var(--radius);
+  }
+
+  /* ── TABLES — Mobile card layout ── */
+  .tbl-wrap { border-radius: var(--radius); }
+  table { font-size: 13px; }
+  thead th { padding: 10px 10px; font-size: 9px; }
+  tbody td { padding: 10px 10px; font-size: 13px; }
+  .badge { font-size: 10px; padding: 3px 8px; }
+  .actions button { padding: 8px; min-width: 36px; min-height: 36px; }
+
+  /* ── CHIPS — Scrollable horizontal on mobile ── */
+  .chip-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .chip {
+    padding: 14px 16px;
+    font-size: 13px;
+    border-radius: var(--radius);
+  }
+
+  /* ── UTILITY FORM ── */
+  .util-form .uf-grid { grid-template-columns: 1fr; gap: 14px; }
+  .fg input {
+    padding: 14px 16px;
+    font-size: 16px;
+    border-radius: var(--radius);
+  }
+  .uf-actions {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .uf-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px;
+    font-size: 15px;
+  }
+  .tot-badge {
+    text-align: center;
+    padding: 12px;
+    font-size: 16px;
+  }
+
+  /* ── TAB BAR (utility tabs) ── */
+  .tab-bar {
+    margin-bottom: 20px;
+  }
+  .tab {
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  /* ── SPLIT ROWS ── */
+  .sr { padding: 12px 14px; font-size: 13px; }
+  .mini-cards { grid-template-columns: 1fr; gap: 10px; }
+  .mc { padding: 16px; }
+
+  /* ── OVERAGE RESULT ── */
+  .overage-result { padding: 18px; }
+  .or-value { font-size: 26px; }
+  .or-calc { font-size: 14px; }
+
+  /* ── TENANT BANNER ── */
+  .tenant-overage-banner { flex-direction: column; gap: 12px; padding: 16px; }
+  .tob-left { flex-direction: column; text-align: center; }
+
+  /* ── CATEGORY BREAKDOWN WIDGET ── */
+  .cat-bar-row { gap: 10px; }
+  .cb-name { min-width: 80px; font-size: 10px; }
+  .cb-val { min-width: 65px; font-size: 11px; }
+
+  /* ── TOP EXPENSES LIST ── */
+  .top-exp-item { padding: 10px 12px; }
+  .te-icon { width: 36px; height: 36px; }
+  .te-desc { font-size: 12px; }
+  .te-val { font-size: 13px; }
+
+  /* ── SETTINGS ── */
+  .file-status-grid { grid-template-columns: 1fr; }
+  .cat-add-form {
+    flex-direction: column;
+    padding: 16px;
+  }
+  .cat-input { min-width: auto; width: 100%; font-size: 16px; padding: 14px; }
+  .cat-add-form .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px;
+  }
+  .cat-chips { grid-template-columns: 1fr; }
+  .cat-chip { padding: 14px 16px; }
+
+  /* ── FILE BANNER ── */
+  .file-banner { flex-direction: column; text-align: center; padding: 16px; }
+  .fb-actions { margin-left: 0; }
   .sheet-badge-bar { flex-wrap: wrap; gap: 6px; padding: 8px 16px; }
   .tb-divider { display: none; }
-  .draggable-charts-grid { grid-template-columns: 1fr; }
+
+  /* ── RULES GRID ── */
+  .rules-grid { grid-template-columns: 1fr; }
+
+  /* ── LOCK SCREEN — Mobile adjustments ── */
+  .lock-card {
+    margin: 20px;
+    padding: 36px 28px;
+    max-width: none;
+  }
+  .lock-card h2 { font-size: 22px; }
+  .lock-input {
+    padding: 16px;
+    font-size: 16px;
+    letter-spacing: 3px;
+  }
+  .lock-btn {
+    padding: 16px;
+    font-size: 16px;
+  }
+
+  /* ── BUDGET SUMMARY GRID ── */
+  .budget-summary-grid { grid-template-columns: 1fr; gap: 10px; }
+  .bs-item { padding: 16px; }
+  .bs-value { font-size: 18px; }
+
+  /* ── WIDGET SELECTORS ── */
+  .widget-header { margin-bottom: -6px; }
+  .small-sel { font-size: 11px; padding: 6px 10px; }
+
+  /* ── RECHARTS on mobile ── */
+  .recharts-wrapper { font-size: 10px !important; }
+
+  /* ── SET ACTIONS ── */
+  .set-actions {
+    flex-direction: column;
+  }
+  .set-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 14px;
+  }
 }
-@media (max-width: 480px) {
-  .cards-grid { grid-template-columns: 1fr; }
-  .charts-row { grid-template-columns: 1fr; }
-  .content { padding: 14px; }
+
+/* ─── Extra small phones ─── */
+@media (max-width: 380px) {
+  .cards-grid { grid-template-columns: 1fr; gap: 10px; }
+  .sc-value { font-size: 16px; }
+  .content { padding: 12px; padding-bottom: calc(90px + env(safe-area-inset-bottom, 0px)); }
+  .tb-left h1 { font-size: 18px; }
+  .btab { min-width: 48px; }
+  .btab-label { font-size: 9px; }
 }
 
 /* ═══════════════════════════════════════════════════════

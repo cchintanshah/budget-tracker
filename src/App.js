@@ -491,7 +491,7 @@ export default function App() {
       )}
       {isUnlocked && !authChecking && (
         <>
-      {/* ── SIDEBAR ── */}
+      {/* ── SIDEBAR (desktop only) ── */}
       <aside className={`sidebar ${sbOpen ? 'open' : ''}`}>
         <div className="sb-head">
           {sbOpen && <h2>Budget Tracker</h2>}
@@ -535,8 +535,8 @@ export default function App() {
               {MON_FULL.map((m, i) => <option key={i} value={i}>{m}</option>)}
             </select>
 
-            {/* Export button */}
-            <button className="btn btn-file" onClick={handleDownload} title="Export Data to Excel" style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+            {/* Export button — hidden on mobile, available in settings */}
+            <button className="btn btn-file desktop-only" onClick={handleDownload} title="Export Data to Excel" style={{ display:'flex', alignItems:'center', gap:'8px' }}>
               <Download size={18} /> Export To Excel
             </button>
           </div>
@@ -552,9 +552,6 @@ export default function App() {
             </div>
           </div>
         )}
-
-
-
 
         <div className="content">
           {page === 'dashboard' && (
@@ -581,6 +578,20 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* ── BOTTOM TAB BAR (mobile only) ── */}
+      <nav className="bottom-tab-bar">
+        {nav.map(n => (
+          <button
+            key={n.id}
+            className={`btab ${page === n.id ? 'active' : ''}`}
+            onClick={() => setPage(n.id)}
+          >
+            <span className="btab-icon">{n.icon}</span>
+            <span className="btab-label">{n.label}</span>
+          </button>
+        ))}
+      </nav>
       </>
       )}
     </div>
